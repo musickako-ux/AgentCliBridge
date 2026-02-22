@@ -37,10 +37,25 @@ async function main() {
     process.exit(1);
   }
 
-  for (const a of adapters) await a.start();
-  console.log(`[claudebridge] running with ${adapters.length} adapter(s)`);
+  // --- Register signal handlers and hot-reload BEFORE starting adapters ---
+  const shutdown = () => {
+    console.log("[claudebridge] shutting down...");
+    for (const a of adapters) a.stop();
+    setTimeout(() => process.exit(0), 1000);
+  };
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
+  process.on("SIGHUP", () => {
+    try {
+      config = reloadConfig();
+      engine.reloadConfig(config);
+      console.log("[claudebridge] config reloaded (SIGHUP)");
+    } catch (err) {
+      console.error("[claudebridge] config reload failed:", err);
+    }
+  });
 
-  // Hot reload config.yaml
+  // Hot reload config.yaml on file change
   let reloadTimer: ReturnType<typeof setTimeout> | null = null;
   watch(_cfgPath || "config.yaml", () => {
     if (reloadTimer) clearTimeout(reloadTimer);
@@ -55,22 +70,14 @@ async function main() {
     }, 500); // debounce
   });
 
-  const shutdown = () => {
-    console.log("[claudebridge] shutting down...");
-    for (const a of adapters) a.stop();
-    process.exit(0);
-  };
-  process.on("SIGINT", shutdown);
-  process.on("SIGTERM", shutdown);
-  process.on("SIGHUP", () => {
-    try {
-      config = reloadConfig();
-      engine.reloadConfig(config);
-      console.log("[claudebridge] config reloaded (SIGHUP)");
-    } catch (err) {
-      console.error("[claudebridge] config reload failed:", err);
-    }
-  });
+  // --- Start adapters (fire-and-forget, they run infinite polling loops) ---
+  for (const a of adapters) {
+    a.start().catch(err => {
+      console.error("[fatal] adapter crashed:", err);
+      process.exit(1);
+    });
+  }
+  console.log(`[claudebridge] running with ${adapters.length} adapter(s)`);
 }
 
 main().catch((err) => {
