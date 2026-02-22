@@ -1,6 +1,14 @@
 # ClaudeBridge
 
-Bridge the `claude` CLI to chat platforms (Telegram, Discord). Spawns `claude` as a subprocess with `--output-format stream-json` — no SDK dependency, just raw CLI power.
+<p align="center">
+  <a href="#english">English</a> | <a href="#中文">中文</a>
+</p>
+
+---
+
+<a name="english"></a>
+
+Bridge the `claude` CLI to chat platforms (Telegram, Discord). Spawns `claude` as a subprocess with `--output-format stream-json` -- no SDK dependency, just raw CLI power.
 
 ## Features
 
@@ -154,6 +162,8 @@ src/adapters/
 MIT
 
 ---
+
+<a name="中文"></a>
 
 # ClaudeBridge
 
