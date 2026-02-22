@@ -35,6 +35,26 @@ export class Store {
       );
       CREATE INDEX IF NOT EXISTS idx_usage_user ON usage(user_id);
       CREATE INDEX IF NOT EXISTS idx_history_user ON history(user_id, created_at);
+      CREATE TABLE IF NOT EXISTS memories (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL,
+        content TEXT NOT NULL,
+        source TEXT NOT NULL DEFAULT 'manual',
+        created_at INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS tasks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL,
+        platform TEXT NOT NULL,
+        chat_id TEXT NOT NULL,
+        description TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        remind_at INTEGER,
+        reminder_sent INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_memories_user ON memories(user_id);
+      CREATE INDEX IF NOT EXISTS idx_tasks_user ON tasks(user_id, status);
     `);
   }
 
@@ -91,5 +111,61 @@ export class Store {
     return this.db
       .prepare("SELECT role, content, created_at FROM history WHERE user_id = ? ORDER BY created_at DESC LIMIT ?")
       .all(userId, limit) as any[];
+  }
+
+  // --- memories ---
+  addMemory(userId: string, content: string, source = "manual"): void {
+    this.db.prepare("INSERT INTO memories (user_id, content, source, created_at) VALUES (?, ?, ?, ?)").run(userId, content, source, Date.now());
+  }
+
+  getMemories(userId: string): { id: number; content: string; source: string; created_at: number }[] {
+    return this.db.prepare("SELECT id, content, source, created_at FROM memories WHERE user_id = ? ORDER BY created_at DESC").all(userId) as any[];
+  }
+
+  clearMemories(userId: string): void {
+    this.db.prepare("DELETE FROM memories WHERE user_id = ?").run(userId);
+  }
+
+  trimMemories(userId: string, max: number): void {
+    this.db.prepare("DELETE FROM memories WHERE user_id = ? AND id NOT IN (SELECT id FROM memories WHERE user_id = ? ORDER BY created_at DESC LIMIT ?)").run(userId, userId, max);
+  }
+
+  // --- tasks ---
+  addTask(userId: string, platform: string, chatId: string, description: string, remindAt?: number, auto = false): number {
+    const r = this.db.prepare("INSERT INTO tasks (user_id, platform, chat_id, description, status, remind_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)").run(userId, platform, chatId, description, auto ? "auto" : "pending", remindAt ?? null, Date.now());
+    return Number(r.lastInsertRowid);
+  }
+
+  getTasks(userId: string): { id: number; description: string; status: string; remind_at: number | null; created_at: number }[] {
+    return this.db.prepare("SELECT id, description, status, remind_at, created_at FROM tasks WHERE user_id = ? AND status = 'pending' ORDER BY created_at DESC").all(userId) as any[];
+  }
+
+  completeTask(taskId: number, userId: string): boolean {
+    const r = this.db.prepare("UPDATE tasks SET status = 'done' WHERE id = ? AND user_id = ? AND status = 'pending'").run(taskId, userId);
+    return r.changes > 0;
+  }
+
+  getDueReminders(): { id: number; user_id: string; platform: string; chat_id: string; description: string }[] {
+    return this.db.prepare("SELECT id, user_id, platform, chat_id, description FROM tasks WHERE status = 'pending' AND remind_at IS NOT NULL AND remind_at <= ? AND reminder_sent = 0").all(Date.now()) as any[];
+  }
+
+  markReminderSent(taskId: number): void {
+    this.db.prepare("UPDATE tasks SET reminder_sent = 1 WHERE id = ?").run(taskId);
+  }
+
+  getNextAutoTask(): { id: number; user_id: string; platform: string; chat_id: string; description: string } | null {
+    return (this.db.prepare("SELECT id, user_id, platform, chat_id, description FROM tasks WHERE status = 'auto' ORDER BY created_at ASC LIMIT 1").get() as any) ?? null;
+  }
+
+  markTaskRunning(taskId: number): void {
+    this.db.prepare("UPDATE tasks SET status = 'running' WHERE id = ?").run(taskId);
+  }
+
+  markTaskResult(taskId: number, status: string): void {
+    this.db.prepare("UPDATE tasks SET status = ? WHERE id = ?").run(status, taskId);
+  }
+
+  getAutoTasks(userId: string): { id: number; description: string; status: string; created_at: number }[] {
+    return this.db.prepare("SELECT id, description, status, created_at FROM tasks WHERE user_id = ? AND status IN ('auto','running') ORDER BY created_at DESC").all(userId) as any[];
   }
 }

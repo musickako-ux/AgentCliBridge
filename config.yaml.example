@@ -1,0 +1,52 @@
+endpoints:
+  - name: "default"
+    base_url: ""
+    api_key: "sk-your-api-key"
+    model: "claude-sonnet-4-20250514"
+
+locale: en  # "zh" for Chinese
+
+agent:
+  allowed_tools:
+    - Read
+    - Edit
+    - Bash
+    - Grep
+    - Glob
+    - WebSearch
+    - WebFetch
+  permission_mode: "acceptEdits"
+  max_turns: 50
+  max_budget_usd: 2.0
+  system_prompt: ""
+  cwd: ""
+  timeout_seconds: 300
+  memory:
+    enabled: true
+    auto_summary: true
+    max_memories: 50
+  intent:
+    enabled: true
+    use_claude_fallback: true
+
+workspace:
+  base_dir: "./workspaces"
+  isolation: true
+
+access:
+  allowed_users: []
+  allowed_groups: []
+
+redis:
+  enabled: false
+  url: ""
+
+platforms:
+  telegram:
+    enabled: true
+    token: "your-telegram-bot-token"
+    chunk_size: 4000
+  discord:
+    enabled: false
+    token: ""
+    chunk_size: 1900

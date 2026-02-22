@@ -3,3 +3,7 @@ dist/
 data/
 .env
 *.db
+config.yaml
+workspaces/
+test-bot.ts
+test-intent.ts

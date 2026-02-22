@@ -4,17 +4,21 @@ import { join } from "path";
 import { Adapter, chunkText } from "./base.js";
 import { AgentEngine } from "../core/agent.js";
 import { Store } from "../core/store.js";
-import { reloadConfig, DiscordConfig } from "../core/config.js";
+import { reloadConfig, DiscordConfig, IntentConfig } from "../core/config.js";
+import { t, getCommandDescriptions } from "../core/i18n.js";
+import { detectIntent } from "../core/intent.js";
 
 const EDIT_INTERVAL = 1500;
 
 export class DiscordAdapter implements Adapter {
   private client: Client;
+  private reminderTimer?: ReturnType<typeof setInterval>;
 
   constructor(
     private engine: AgentEngine,
     private store: Store,
-    private config: DiscordConfig
+    private config: DiscordConfig,
+    private locale: string = "en"
   ) {
     this.client = new Client({
       intents: [
@@ -41,22 +45,12 @@ export class DiscordAdapter implements Adapter {
 
       // Commands
       if (text === "!help") {
-        await msg.reply(
-          "Commands:\n" +
-          "!new - clear session\n" +
-          "!usage - your usage stats\n" +
-          "!allusage - all users usage\n" +
-          "!history - recent conversations\n" +
-          "!model - current model info\n" +
-          "!reload - reload config\n" +
-          "!help - this message\n\n" +
-          "Send text or attach files to chat with Claude."
-        );
+        await msg.reply(t(this.locale, "help").replaceAll("/", "!"));
         return;
       }
       if (text === "!new") {
         this.store.clearSession(msg.author.id);
-        await msg.reply("Session cleared.");
+        await msg.reply(t(this.locale, "session_cleared"));
         return;
       }
       if (text === "!usage") {
@@ -66,17 +60,17 @@ export class DiscordAdapter implements Adapter {
       }
       if (text === "!allusage") {
         const rows = this.store.getUsageAll();
-        if (!rows.length) { await msg.reply("No usage data."); return; }
+        if (!rows.length) { await msg.reply(t(this.locale, "no_usage")); return; }
         const out = rows.map((r) => `${r.user_id}: ${r.count} reqs, $${r.total_cost.toFixed(4)}`).join("\n");
         await msg.reply(out);
         return;
       }
       if (text === "!history") {
         const rows = this.store.getHistory(msg.author.id, 5);
-        if (!rows.length) { await msg.reply("No history."); return; }
+        if (!rows.length) { await msg.reply(t(this.locale, "no_history")); return; }
         const out = rows.reverse().map((r) => {
-          const t = new Date(r.created_at).toLocaleString();
-          return `[${t}] ${r.role}: ${r.content.slice(0, 150)}`;
+          const ts = new Date(r.created_at).toLocaleString();
+          return `[${ts}] ${r.role}: ${r.content.slice(0, 150)}`;
         }).join("\n\n");
         await msg.reply(out);
         return;
@@ -92,10 +86,79 @@ export class DiscordAdapter implements Adapter {
         try {
           const c = reloadConfig();
           this.engine.reloadConfig(c);
-          await msg.reply("Config reloaded.");
+          this.locale = c.locale;
+          await msg.reply(t(this.locale, "config_reloaded"));
         } catch (err: any) {
-          await msg.reply(`Reload failed: ${err.message}`);
+          await msg.reply(t(this.locale, "reload_failed") + err.message);
         }
+        return;
+      }
+      if (text.startsWith("!remember ")) {
+        const content = text.slice(10).trim();
+        if (!content) { await msg.reply(t(this.locale, "usage_remember").replace("/", "!")); return; }
+        this.store.addMemory(msg.author.id, content);
+        await msg.reply(t(this.locale, "memory_saved"));
+        return;
+      }
+      if (text === "!memories") {
+        const mems = this.store.getMemories(msg.author.id);
+        if (!mems.length) { await msg.reply(t(this.locale, "no_memories")); return; }
+        await msg.reply(mems.map(m => `[${m.source}] ${m.content}`).join("\n\n"));
+        return;
+      }
+      if (text === "!forget") {
+        this.store.clearMemories(msg.author.id);
+        await msg.reply(t(this.locale, "memories_cleared"));
+        return;
+      }
+      if (text.startsWith("!task ")) {
+        const desc = text.slice(6).trim();
+        if (!desc) { await msg.reply(t(this.locale, "usage_task").replace("/", "!")); return; }
+        const id = this.store.addTask(msg.author.id, "discord", String(msg.channelId), desc);
+        await msg.reply(t(this.locale, "task_added", { id }));
+        return;
+      }
+      if (text === "!tasks") {
+        const tasks = this.store.getTasks(msg.author.id);
+        if (!tasks.length) { await msg.reply(t(this.locale, "no_tasks")); return; }
+        await msg.reply(tasks.map(tk => `#${tk.id} ${tk.description}${tk.remind_at ? ` ⏰${new Date(tk.remind_at).toLocaleString()}` : ""}`).join("\n"));
+        return;
+      }
+      if (text.startsWith("!done ")) {
+        const id = parseInt(text.slice(6).trim());
+        if (isNaN(id)) { await msg.reply(t(this.locale, "usage_done").replace("/", "!")); return; }
+        const ok = this.store.completeTask(id, msg.author.id);
+        await msg.reply(ok ? t(this.locale, "task_done", { id }) : t(this.locale, "task_not_found", { id }));
+        return;
+      }
+      if (text.startsWith("!remind ")) {
+        const match = text.match(/^!remind\s+(\d+)m\s+(.+)$/);
+        if (!match) { await msg.reply(t(this.locale, "usage_remind").replace("/", "!")); return; }
+        const mins = parseInt(match[1]);
+        const desc = match[2].trim();
+        const remindAt = Date.now() + mins * 60000;
+        const id = this.store.addTask(msg.author.id, "discord", String(msg.channelId), desc, remindAt);
+        await msg.reply(t(this.locale, "reminder_set", { id, mins }));
+        return;
+      }
+      if (text.startsWith("!auto ")) {
+        const desc = text.slice(6).trim();
+        if (!desc) { await msg.reply(t(this.locale, "usage_auto").replace("/", "!")); return; }
+        const id = this.store.addTask(msg.author.id, "discord", String(msg.channelId), desc, undefined, true);
+        await msg.reply(t(this.locale, "auto_queued", { id }));
+        return;
+      }
+      if (text === "!autotasks") {
+        const all = this.store.getAutoTasks(msg.author.id);
+        if (!all.length) { await msg.reply(t(this.locale, "no_auto_tasks")); return; }
+        await msg.reply(all.map(tk => `#${tk.id} [${tk.status}] ${tk.description}`).join("\n"));
+        return;
+      }
+      if (text.startsWith("!cancelauto ")) {
+        const id = parseInt(text.slice(12).trim());
+        if (isNaN(id)) { await msg.reply(t(this.locale, "usage_cancelauto").replace("/", "!")); return; }
+        this.store.markTaskResult(id, "cancelled");
+        await msg.reply(t(this.locale, "auto_cancelled", { id }));
         return;
       }
 
@@ -116,6 +179,37 @@ export class DiscordAdapter implements Adapter {
         return;
       }
 
+      // Intent detection (before sending to Claude)
+      if (text && !text.startsWith("!") && this.engine.getIntentConfig()?.enabled !== false) {
+        const intent = await detectIntent(text, this.engine.getRotator(), this.engine.getIntentConfig());
+        if (intent.type === "reminder" && intent.minutes && intent.description) {
+          const remindAt = Date.now() + intent.minutes * 60000;
+          const id = this.store.addTask(msg.author.id, "discord", String(msg.channelId), intent.description, remindAt);
+          await msg.reply(t(this.locale, "intent_reminder_set", { mins: intent.minutes, desc: intent.description, id }));
+          return;
+        }
+        if (intent.type === "task" && intent.description) {
+          const id = this.store.addTask(msg.author.id, "discord", String(msg.channelId), intent.description);
+          await msg.reply(t(this.locale, "intent_task_added", { id, desc: intent.description }));
+          return;
+        }
+        if (intent.type === "memory" && intent.description) {
+          this.store.addMemory(msg.author.id, intent.description, "nlp");
+          await msg.reply(t(this.locale, "intent_memory_saved", { desc: intent.description }));
+          return;
+        }
+        if (intent.type === "forget") {
+          this.store.clearMemories(msg.author.id);
+          await msg.reply(t(this.locale, "memories_cleared"));
+          return;
+        }
+        if (intent.type === "clear_session") {
+          this.store.clearSession(msg.author.id);
+          await msg.reply(t(this.locale, "session_cleared"));
+          return;
+        }
+      }
+
       if (!text) return;
       await this.handlePrompt(msg, text);
     });
@@ -123,11 +217,11 @@ export class DiscordAdapter implements Adapter {
 
   private async handlePrompt(msg: Message, text: string) {
     if (this.engine.isLocked(msg.author.id)) {
-      await msg.reply("⏳ Still processing...");
+      await msg.reply(t(this.locale, "still_processing"));
       return;
     }
 
-    const placeholder = await msg.reply("⏳ Thinking...");
+    const placeholder = await msg.reply(t(this.locale, "thinking"));
     let lastEdit = 0;
     let lastText = "";
 
@@ -161,9 +255,22 @@ export class DiscordAdapter implements Adapter {
     console.log("[discord] starting bot...");
     await this.client.login(this.config.token);
     console.log(`[discord] logged in as ${this.client.user?.tag}`);
+    this.reminderTimer = setInterval(() => this.checkReminders(), 30000);
   }
 
   stop(): void {
+    if (this.reminderTimer) clearInterval(this.reminderTimer);
     this.client.destroy();
+  }
+
+  private async checkReminders(): Promise<void> {
+    try {
+      const due = this.store.getDueReminders().filter(r => r.platform === "discord");
+      for (const r of due) {
+        const ch = await this.client.channels.fetch(r.chat_id);
+        if (ch?.isTextBased() && "send" in ch) await (ch as any).send(t(this.locale, "reminder_notify", { desc: r.description }));
+        this.store.markReminderSent(r.id);
+      }
+    } catch (e) { console.error("[discord] reminder error:", e); }
   }
 }

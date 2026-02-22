@@ -1,3 +1,5 @@
+import { setDefaultAutoSelectFamily } from "net";
+setDefaultAutoSelectFamily(false);
 import { watch } from "fs";
 import { loadConfig, reloadConfig } from "./core/config.js";
 import { Store } from "./core/store.js";
@@ -17,7 +19,7 @@ async function main() {
       console.error("[fatal] TELEGRAM_BOT_TOKEN not set");
       process.exit(1);
     }
-    adapters.push(new TelegramAdapter(engine, store, config.platforms.telegram));
+    adapters.push(new TelegramAdapter(engine, store, config.platforms.telegram, config.locale));
   }
 
   if (config.platforms.discord.enabled) {
@@ -25,7 +27,7 @@ async function main() {
       console.error("[fatal] DISCORD_BOT_TOKEN not set");
       process.exit(1);
     }
-    adapters.push(new DiscordAdapter(engine, store, config.platforms.discord));
+    adapters.push(new DiscordAdapter(engine, store, config.platforms.discord, config.locale));
   }
 
   if (!adapters.length) {

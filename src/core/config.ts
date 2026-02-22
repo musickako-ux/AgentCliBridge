@@ -3,6 +3,17 @@ import { parse } from "yaml";
 import "dotenv/config";
 import { Endpoint } from "./keys.js";
 
+export interface MemoryConfig {
+  enabled: boolean;
+  auto_summary: boolean;
+  max_memories: number;
+}
+
+export interface IntentConfig {
+  enabled: boolean;
+  use_claude_fallback: boolean;
+}
+
 export interface AgentConfig {
   allowed_tools: string[];
   permission_mode: string;
@@ -10,6 +21,9 @@ export interface AgentConfig {
   max_budget_usd: number;
   system_prompt: string;
   cwd: string;
+  timeout_seconds: number;
+  memory: MemoryConfig;
+  intent: IntentConfig;
 }
 
 export interface WorkspaceConfig {
@@ -45,6 +59,7 @@ export interface Config {
   workspace: WorkspaceConfig;
   access: AccessConfig;
   redis: RedisConfig;
+  locale: string;
   platforms: { telegram: TelegramConfig; discord: DiscordConfig };
 }
 
@@ -55,10 +70,16 @@ export function loadConfig(path?: string): Config {
   const raw = parse(readFileSync(_configPath, "utf-8")) as any;
   const c: Config = {
     endpoints: raw.endpoints || [],
-    agent: raw.agent,
+    agent: {
+      ...raw.agent,
+      timeout_seconds: raw.agent?.timeout_seconds ?? 300,
+      memory: { enabled: true, auto_summary: true, max_memories: 50, ...raw.agent?.memory },
+      intent: { enabled: true, use_claude_fallback: true, ...raw.agent?.intent },
+    },
     workspace: raw.workspace,
     access: raw.access || { allowed_users: [], allowed_groups: [] },
     redis: raw.redis || { enabled: false, url: "" },
+    locale: raw.locale || "en",
     platforms: raw.platforms,
   };
   // defaults for each endpoint
