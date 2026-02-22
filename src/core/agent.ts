@@ -1,4 +1,4 @@
-import { query } from "@anthropic-ai/claude-agent-sdk";
+import { spawn, ChildProcess } from "child_process";
 import { mkdirSync } from "fs";
 import { join } from "path";
 import { Config } from "./config.js";
@@ -57,30 +57,6 @@ export class AgentEngine {
     return dir;
   }
 
-  private buildEnv(ep: Endpoint): Record<string, string> {
-    const env: Record<string, string> = { ...process.env as Record<string, string> };
-    env.ANTHROPIC_API_KEY = ep.api_key;
-    if (ep.base_url) env.ANTHROPIC_BASE_URL = ep.base_url;
-    return env;
-  }
-
-  private buildOpts(userId: string, ep: Endpoint) {
-    const existingSession = this.store.getSession(userId);
-    const ac = this.config.agent;
-    const opts: Record<string, unknown> = {
-      allowedTools: ac.allowed_tools,
-      permissionMode: ac.permission_mode,
-      maxTurns: ac.max_turns,
-      maxBudgetUsd: ac.max_budget_usd,
-      cwd: this.getWorkDir(userId),
-      env: this.buildEnv(ep),
-    };
-    if (ep.model) opts.model = ep.model;
-    if (ac.system_prompt) opts.systemPrompt = ac.system_prompt;
-    if (existingSession) opts.resume = existingSession;
-    return { opts, existingSession };
-  }
-
   isLocked(userId: string): boolean {
     return this.lock.isLocked(userId);
   }
@@ -117,9 +93,9 @@ export class AgentEngine {
         return await this._execute(userId, prompt, platform, ep, onChunk);
       } catch (err: any) {
         lastErr = err;
-        const status = err?.status || err?.statusCode;
-        if (status === 429 || status === 401 || status === 529) {
-          console.warn(`[agent] endpoint ${ep.name} failed (${status}), rotating`);
+        const msg = String(err?.message || "");
+        if (msg.includes("429") || msg.includes("401") || msg.includes("529")) {
+          console.warn(`[agent] endpoint ${ep.name} failed, rotating`);
           this.rotator.markFailed(ep);
           continue;
         }
@@ -129,38 +105,73 @@ export class AgentEngine {
     throw lastErr;
   }
 
-  private async _execute(
+  private _execute(
     userId: string,
     prompt: string,
     platform: string,
     ep: Endpoint,
     onChunk?: StreamCallback
   ): Promise<AgentResponse> {
-    const { opts, existingSession } = this.buildOpts(userId, ep);
-    let sessionId = existingSession || "";
-    let fullText = "";
-    let cost = 0;
+    return new Promise((resolve, reject) => {
+      const sessionId = this.store.getSession(userId) || "";
+      const cwd = this.getWorkDir(userId);
 
-    for await (const message of query({ prompt, options: opts as any })) {
-      const msg = message as any;
-      if (msg.type === "system" && msg.subtype === "init" && msg.session_id) {
-        sessionId = msg.session_id;
-      }
-      if (msg.type === "assistant" && msg.message?.content) {
-        for (const block of msg.message.content) {
-          if ("text" in block) {
-            fullText += block.text + "\n";
-            if (onChunk) await onChunk(block.text, fullText);
-          }
+      const args = ["-p", prompt, "--verbose", "--output-format", "stream-json"];
+      if (ep.model) args.push("--model", ep.model);
+      if (sessionId) args.push("-r", sessionId);
+
+      const env: Record<string, string> = { ...process.env as Record<string, string> };
+      env.ANTHROPIC_API_KEY = ep.api_key;
+      if (ep.base_url) env.ANTHROPIC_BASE_URL = ep.base_url;
+
+      const child = spawn("claude", args, { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
+
+      let fullText = "";
+      let newSessionId = sessionId;
+      let cost = 0;
+      let buffer = "";
+
+      child.stdout.on("data", (data: Buffer) => {
+        buffer += data.toString();
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const msg = JSON.parse(line);
+            if (msg.type === "system" && msg.subtype === "init" && msg.session_id) {
+              newSessionId = msg.session_id;
+            }
+            if (msg.type === "assistant" && msg.message?.content) {
+              for (const block of msg.message.content) {
+                if (block.type === "text" && block.text) {
+                  fullText += block.text + "\n";
+                  if (onChunk) onChunk(block.text, fullText);
+                }
+              }
+            }
+            if (msg.type === "result") {
+              if (msg.result) fullText = msg.result;
+              if (msg.total_cost_usd) cost = msg.total_cost_usd;
+            }
+          } catch {}
         }
-      }
-      if (msg.type === "result") {
-        if (msg.result) fullText = msg.result;
-        if (msg.total_cost_usd) cost = msg.total_cost_usd;
-      }
-    }
+      });
 
-    if (sessionId) this.store.setSession(userId, sessionId, platform);
-    return { text: fullText.trim() || "(no response)", sessionId, cost };
+      let stderr = "";
+      child.stderr.on("data", (data: Buffer) => { stderr += data.toString(); });
+
+      child.on("close", (code) => {
+        if (newSessionId) this.store.setSession(userId, newSessionId, platform);
+        if (code === 0 || fullText.trim()) {
+          resolve({ text: fullText.trim() || "(no response)", sessionId: newSessionId, cost });
+        } else {
+          reject(new Error(`claude exited ${code}: ${stderr.slice(0, 500)}`));
+        }
+      });
+
+      child.on("error", reject);
+    });
   }
 }
