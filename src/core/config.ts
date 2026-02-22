@@ -5,6 +5,7 @@ import "dotenv/config";
 export interface ApiConfig {
   base_url: string;
   api_key: string;
+  api_keys: string[];   // multiple keys for rotation
   model: string;
 }
 
@@ -60,6 +61,16 @@ export function loadConfig(path?: string): Config {
   const raw = parse(readFileSync(_configPath, "utf-8"));
   const c = raw as Config;
   c.api.api_key = c.api.api_key || process.env.ANTHROPIC_API_KEY || "";
+  c.api.api_keys = c.api.api_keys || [];
+  // merge single key into keys array if not already present
+  if (c.api.api_key && !c.api.api_keys.includes(c.api.api_key)) {
+    c.api.api_keys.unshift(c.api.api_key);
+  }
+  // env: comma-separated ANTHROPIC_API_KEYS
+  const envKeys = process.env.ANTHROPIC_API_KEYS?.split(",").map(k => k.trim()).filter(Boolean) || [];
+  for (const k of envKeys) {
+    if (!c.api.api_keys.includes(k)) c.api.api_keys.push(k);
+  }
   c.api.base_url = c.api.base_url || process.env.ANTHROPIC_BASE_URL || "";
   c.api.model = c.api.model || process.env.ANTHROPIC_MODEL || "";
   c.access = c.access || { allowed_users: [], allowed_groups: [] };
