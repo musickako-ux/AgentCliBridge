@@ -36,12 +36,14 @@ const cmd = args.find(a => !a.startsWith("-")) || "start";
 const cfgIdx = args.indexOf("--config");
 const cfgPath = cfgIdx !== -1 ? args[cfgIdx + 1] : undefined;
 const daemon = args.includes("--daemon") || args.includes("-d");
+const DEFAULT_CFG = join(DIR, "config.yaml");
 
 switch (cmd) {
   case "start": {
     const existing = readPid();
     if (existing) { console.log(`Already running (PID ${existing})`); process.exit(0); }
-    const childArgs = [ENTRY, ...(cfgPath ? ["--config", cfgPath] : [])];
+    const resolvedCfg = cfgPath || DEFAULT_CFG;
+    const childArgs = [ENTRY, "--config", resolvedCfg];
     if (daemon) {
       ensureDir();
       const { openSync } = await import("fs");
@@ -80,11 +82,13 @@ switch (cmd) {
     break;
   }
   case "init": {
-    if (existsSync("config.yaml")) { console.log("config.yaml already exists"); process.exit(0); }
+    ensureDir();
+    const target = cfgPath || DEFAULT_CFG;
+    if (existsSync(target)) { console.log(`${target} already exists`); process.exit(0); }
     const example = join(__dirname, "..", "config.yaml.example");
     if (!existsSync(example)) { console.error("config.yaml.example not found"); process.exit(1); }
-    copyFileSync(example, "config.yaml");
-    console.log("Created config.yaml from template");
+    copyFileSync(example, target);
+    console.log(`Created ${target} from template`);
     break;
   }
   default:
