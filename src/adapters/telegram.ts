@@ -10,6 +10,7 @@ const EDIT_INTERVAL = 1500;
 interface TgUpdate {
   update_id: number;
   message?: any;
+  callback_query?: any;
 }
 
 export class TelegramAdapter implements Adapter {
@@ -18,6 +19,8 @@ export class TelegramAdapter implements Adapter {
   private reminderTimer?: ReturnType<typeof setInterval>;
   private autoTimer?: ReturnType<typeof setInterval>;
   private autoRunning = false;
+  private pages = new Map<string, { chunks: string[]; raw: string[]; ts: number }>();
+  private static PAGE_TTL = 30 * 60 * 1000; // 30 minutes
 
   constructor(
     private engine: AgentEngine,
@@ -43,9 +46,15 @@ export class TelegramAdapter implements Adapter {
         });
         clearTimeout(timer);
         const json = await res.json();
+        if (!json.ok) {
+          console.error(`[telegram] API error ${method}:`, json.description || json);
+          const err = new Error(json.description || `Telegram API error: ${method}`);
+          (err as any).apiError = true;
+          throw err;
+        }
         return json.result;
-      } catch (err) {
-        if (i === 2) throw err;
+      } catch (err: any) {
+        if (err.apiError || i === 2) throw err;
         await new Promise(r => setTimeout(r, 1000 * (i + 1)));
       }
     }
@@ -71,6 +80,10 @@ export class TelegramAdapter implements Adapter {
   }
 
   private async handleUpdate(update: TgUpdate) {
+    if (update.callback_query) {
+      await this.handlePageCallback(update.callback_query);
+      return;
+    }
     const msg = update.message;
     if (!msg) return;
     const uid = msg.from?.id;
@@ -150,6 +163,78 @@ export class TelegramAdapter implements Adapter {
     if (text) await this.handlePrompt(chatId, String(uid), text);
   }
 
+  private pageKeyboard(chatId: number, msgId: number, cur: number, total: number) {
+    const btns: any[] = [];
+    if (cur > 0) btns.push({ text: "◀", callback_data: `p:${chatId}:${msgId}:${cur - 1}` });
+    btns.push({ text: `${cur + 1} / ${total}`, callback_data: "noop" });
+    if (cur < total - 1) btns.push({ text: "▶", callback_data: `p:${chatId}:${msgId}:${cur + 1}` });
+    return { inline_keyboard: [btns] };
+  }
+
+  private async handlePageCallback(cb: any) {
+    const data: string = cb.data || "";
+    const cbId: string = cb.id;
+
+    // Always answer callback to remove loading spinner
+    const answer = (text?: string) =>
+      this.call("answerCallbackQuery", { callback_query_id: cbId, ...(text ? { text, show_alert: false } : {}) });
+
+    if (data === "noop") {
+      await answer();
+      return;
+    }
+
+    if (!data.startsWith("p:")) {
+      await answer();
+      return;
+    }
+
+    const parts = data.split(":");
+    if (parts.length !== 4) {
+      await answer();
+      return;
+    }
+
+    const chatId = Number(parts[1]);
+    const msgId = Number(parts[2]);
+    const page = Number(parts[3]);
+    const key = `${chatId}:${msgId}`;
+    const entry = this.pages.get(key);
+
+    if (!entry || Date.now() - entry.ts > TelegramAdapter.PAGE_TTL) {
+      this.pages.delete(key);
+      await answer(t(this.locale, "page_expired"));
+      return;
+    }
+
+    if (page < 0 || page >= entry.chunks.length) {
+      await answer();
+      return;
+    }
+
+    const keyboard = this.pageKeyboard(chatId, msgId, page, entry.chunks.length);
+    try {
+      await this.call("editMessageText", {
+        chat_id: chatId,
+        message_id: msgId,
+        text: entry.chunks[page],
+        parse_mode: "MarkdownV2",
+        reply_markup: keyboard,
+      });
+    } catch {
+      // MarkdownV2 failed, fallback to raw text
+      try {
+        await this.call("editMessageText", {
+          chat_id: chatId,
+          message_id: msgId,
+          text: entry.raw[page],
+          reply_markup: keyboard,
+        });
+      } catch {}
+    }
+    await answer();
+  }
+
   private async handlePrompt(chatId: number, uid: string, text: string) {
     if (this.engine.isLocked(uid)) {
       await this.reply(chatId, t(this.locale, "still_processing"));
@@ -174,17 +259,41 @@ export class TelegramAdapter implements Adapter {
 
       const maxLen = this.config.chunk_size || 4000;
       const md = toTelegramMarkdown(res.text);
-      const chunks = chunkText(md, maxLen);
-      try {
-        await this.editMsg(chatId, msgId, chunks[0], "MarkdownV2");
-      } catch {
-        await this.editMsg(chatId, msgId, res.text);
-      }
-      for (let i = 1; i < chunks.length; i++) {
+      const mdChunks = chunkText(md, maxLen);
+      const rawChunks = chunkText(res.text, maxLen);
+
+      if (mdChunks.length <= 1) {
+        // Single page — no pagination needed
         try {
-          await this.reply(chatId, chunks[i], "MarkdownV2");
+          await this.editMsg(chatId, msgId, mdChunks[0], "MarkdownV2");
         } catch {
-          await this.reply(chatId, chunks[i]);
+          await this.editMsg(chatId, msgId, res.text);
+        }
+      } else {
+        // Multi-page — store pages and show inline keyboard
+        const key = `${chatId}:${msgId}`;
+        this.pages.set(key, { chunks: mdChunks, raw: rawChunks, ts: Date.now() });
+        setTimeout(() => this.pages.delete(key), TelegramAdapter.PAGE_TTL);
+
+        const keyboard = this.pageKeyboard(chatId, msgId, 0, mdChunks.length);
+        try {
+          await this.call("editMessageText", {
+            chat_id: chatId,
+            message_id: msgId,
+            text: mdChunks[0],
+            parse_mode: "MarkdownV2",
+            reply_markup: keyboard,
+          });
+        } catch {
+          // MarkdownV2 failed, fallback to raw text
+          try {
+            await this.call("editMessageText", {
+              chat_id: chatId,
+              message_id: msgId,
+              text: rawChunks[0],
+              reply_markup: keyboard,
+            });
+          } catch {}
         }
       }
     } catch (err: any) {

@@ -13,6 +13,7 @@ const messages: Record<string, Record<string, string>> = {
     auto_starting: "🤖 Auto task #{id} starting:\n{desc}",
     auto_done: "✅ Auto task #{id} done (cost: ${cost}):",
     auto_failed: "❌ Auto task #{id} failed: {err}",
+    page_expired: "Page expired. Please resend your question.",
   },
   zh: {
     help: "ClaudeBridge 就绪。\n\n管理命令：\n/new - 清除会话\n/usage - 你的用量\n/allusage - 所有用量\n/history - 最近对话\n/model - 端点信息\n/reload - 重载配置\n/help - 显示帮助\n\n直接对话即可管理记忆、任务、提醒等 — Claude 会自动处理。",
@@ -28,6 +29,7 @@ const messages: Record<string, Record<string, string>> = {
     auto_starting: "🤖 自动任务 #{id} 开始执行：\n{desc}",
     auto_done: "✅ 自动任务 #{id} 完成（花费：${cost}）：",
     auto_failed: "❌ 自动任务 #{id} 失败：{err}",
+    page_expired: "页面已过期，请重新发送问题。",
   },
 };
 
