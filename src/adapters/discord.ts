@@ -1,5 +1,5 @@
 import { Client, GatewayIntentBits, Message } from "discord.js";
-import { writeFileSync, mkdirSync } from "fs";
+import { writeFileSync } from "fs";
 import { join } from "path";
 import { Adapter, chunkText } from "./base.js";
 import { AgentEngine } from "../core/agent.js";
@@ -95,8 +95,7 @@ export class DiscordAdapter implements Adapter {
 
       // File upload handling
       if (msg.attachments.size > 0) {
-        const ws = join("workspaces", msg.author.id);
-        mkdirSync(ws, { recursive: true });
+        const ws = this.engine.getWorkDir(msg.author.id);
         for (const [, att] of msg.attachments) {
           try {
             const resp = await fetch(att.url);

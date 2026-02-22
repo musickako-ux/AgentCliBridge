@@ -136,10 +136,9 @@ export class TelegramAdapter implements Adapter {
         const url = `https://api.telegram.org/file/bot${this.config.token}/${file.file_path}`;
         const resp = await fetch(url);
         const buf = Buffer.from(await resp.arrayBuffer());
-        const { mkdirSync, writeFileSync } = await import("fs");
+        const { writeFileSync } = await import("fs");
         const { join } = await import("path");
-        const ws = join("workspaces", String(uid));
-        mkdirSync(ws, { recursive: true });
+        const ws = this.engine.getWorkDir(String(uid));
         writeFileSync(join(ws, fileName), buf);
         const prompt = msg.caption || `Analyze the uploaded file: ${fileName}`;
         await this.handlePrompt(chatId, String(uid), prompt);

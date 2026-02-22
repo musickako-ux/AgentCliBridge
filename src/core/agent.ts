@@ -53,7 +53,7 @@ export class AgentEngine {
     return this.rotator.count;
   }
 
-  private getWorkDir(userId: string): string {
+  getWorkDir(userId: string): string {
     if (!this.config.workspace.isolation) {
       return this.config.agent.cwd || process.cwd();
     }
@@ -230,7 +230,7 @@ export class AgentEngine {
     if (ep.api_key) env.ANTHROPIC_API_KEY = ep.api_key;
     if (ep.base_url) env.ANTHROPIC_BASE_URL = ep.base_url;
     const summaryPrompt = `Extract 1-3 key facts worth remembering about the user from this exchange. Output only bullet points, no preamble. If nothing worth remembering, output "NONE".\n\nUser: ${prompt.slice(0, 500)}\nAssistant: ${response.slice(0, 1000)}`;
-    const args = ["-p", summaryPrompt, "--output-format", "stream-json", "--max-turns", "1", "--max-budget-usd", "0.05"];
+    const args = ["-p", summaryPrompt, "--verbose", "--output-format", "stream-json", "--max-turns", "1", "--max-budget-usd", "0.05"];
     if (ep.model) args.push("--model", ep.model);
     const child = spawn("claude", args, { env, stdio: ["pipe", "pipe", "pipe"] });
     child.stdin.end();
