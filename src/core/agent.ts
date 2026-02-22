@@ -1,11 +1,12 @@
 import { spawn, ChildProcess } from "child_process";
 import { mkdirSync } from "fs";
-import { join } from "path";
+import { join, resolve as pathResolve } from "path";
 import { Config } from "./config.js";
 import { Store } from "./store.js";
 import { UserLock } from "./lock.js";
 import { AccessControl } from "./permissions.js";
 import { EndpointRotator, Endpoint } from "./keys.js";
+import { generateSkillDoc } from "../skills/bridge.js";
 
 export interface AgentResponse {
   text: string;
@@ -48,10 +49,6 @@ export class AgentEngine {
     return this.rotator;
   }
 
-  getIntentConfig() {
-    return this.config.agent.intent;
-  }
-
   getEndpointCount(): number {
     return this.rotator.count;
   }
@@ -73,6 +70,7 @@ export class AgentEngine {
     userId: string,
     prompt: string,
     platform: string,
+    chatId: string,
     onChunk?: StreamCallback
   ): Promise<AgentResponse> {
     const release = await this.lock.acquire(userId);
@@ -80,7 +78,7 @@ export class AgentEngine {
       this.store.addHistory(userId, platform, "user", prompt);
       const memories = this.config.agent.memory?.enabled ? this.store.getMemories(userId) : [];
       const memoryPrompt = memories.length ? memories.map(m => `- ${m.content}`).join("\n") : "";
-      const res = await this._executeWithRetry(userId, prompt, platform, onChunk, memoryPrompt);
+      const res = await this._executeWithRetry(userId, prompt, platform, chatId, onChunk, memoryPrompt);
       this.store.addHistory(userId, platform, "assistant", res.text);
       this.store.recordUsage(userId, platform, res.cost || 0);
       if (this.config.agent.memory?.auto_summary) this._autoSummarize(userId, prompt, res.text);
@@ -94,6 +92,7 @@ export class AgentEngine {
     userId: string,
     prompt: string,
     platform: string,
+    chatId: string,
     onChunk?: StreamCallback,
     memoryPrompt?: string
   ): Promise<AgentResponse> {
@@ -104,7 +103,7 @@ export class AgentEngine {
         ? this.rotator.next()
         : { name: "cli-default", api_key: "", base_url: "", model: "" };
       try {
-        return await this._execute(userId, prompt, platform, ep, onChunk, memoryPrompt);
+        return await this._execute(userId, prompt, platform, chatId, ep, onChunk, memoryPrompt);
       } catch (err: any) {
         lastErr = err;
         const msg = String(err?.message || "");
@@ -123,6 +122,7 @@ export class AgentEngine {
     userId: string,
     prompt: string,
     platform: string,
+    chatId: string,
     ep: Endpoint,
     onChunk?: StreamCallback,
     memoryPrompt?: string
@@ -135,7 +135,15 @@ export class AgentEngine {
       if (ep.model) args.push("--model", ep.model);
       if (sessionId) args.push("-r", sessionId);
       if (this.config.agent.system_prompt) args.push("--system-prompt", this.config.agent.system_prompt);
-      if (memoryPrompt) args.push("--append-system-prompt", `User memories:\n${memoryPrompt}`);
+
+      // Build combined append prompt: memories + skill doc
+      let appendPrompt = "";
+      if (memoryPrompt) appendPrompt += `User memories:\n${memoryPrompt}\n\n`;
+      if (this.config.agent.skill?.enabled !== false) {
+        appendPrompt += generateSkillDoc({ userId, chatId, platform, locale: this.config.locale || "en" });
+      }
+      if (appendPrompt) args.push("--append-system-prompt", appendPrompt.trim());
+
       if (this.config.agent.allowed_tools?.length) args.push("--allowed-tools", this.config.agent.allowed_tools.join(","));
       if (this.config.agent.max_turns) args.push("--max-turns", String(this.config.agent.max_turns));
       if (this.config.agent.max_budget_usd) args.push("--max-budget-usd", String(this.config.agent.max_budget_usd));
@@ -143,6 +151,7 @@ export class AgentEngine {
       const env: Record<string, string> = { ...process.env as Record<string, string> };
       if (ep.api_key) env.ANTHROPIC_API_KEY = ep.api_key;
       if (ep.base_url) env.ANTHROPIC_BASE_URL = ep.base_url;
+      env.CLAUDEBRIDGE_DB = pathResolve("./data/claudebridge.db");
 
       const child = spawn("claude", args, { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
       child.stdin.end();

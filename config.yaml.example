@@ -27,9 +27,8 @@ agent:
     enabled: true
     auto_summary: true
     max_memories: 50
-  intent:
+  skill:
     enabled: true
-    use_claude_fallback: true
 
 workspace:
   base_dir: "./workspaces"

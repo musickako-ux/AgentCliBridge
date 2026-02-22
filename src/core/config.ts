@@ -9,9 +9,8 @@ export interface MemoryConfig {
   max_memories: number;
 }
 
-export interface IntentConfig {
+export interface SkillConfig {
   enabled: boolean;
-  use_claude_fallback: boolean;
 }
 
 export interface AgentConfig {
@@ -23,7 +22,7 @@ export interface AgentConfig {
   cwd: string;
   timeout_seconds: number;
   memory: MemoryConfig;
-  intent: IntentConfig;
+  skill: SkillConfig;
 }
 
 export interface WorkspaceConfig {
@@ -74,7 +73,7 @@ export function loadConfig(path?: string): Config {
       ...raw.agent,
       timeout_seconds: raw.agent?.timeout_seconds ?? 300,
       memory: { enabled: true, auto_summary: true, max_memories: 50, ...raw.agent?.memory },
-      intent: { enabled: true, use_claude_fallback: true, ...raw.agent?.intent },
+      skill: { enabled: true, ...raw.agent?.skill },
     },
     workspace: raw.workspace,
     access: raw.access || { allowed_users: [], allowed_groups: [] },

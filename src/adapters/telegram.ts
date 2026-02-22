@@ -1,10 +1,9 @@
 import { Adapter, chunkText } from "./base.js";
 import { AgentEngine } from "../core/agent.js";
 import { Store } from "../core/store.js";
-import { reloadConfig, TelegramConfig, IntentConfig } from "../core/config.js";
+import { reloadConfig, TelegramConfig } from "../core/config.js";
 import { toTelegramMarkdown } from "../core/markdown.js";
 import { t, getCommandDescriptions } from "../core/i18n.js";
-import { detectIntent } from "../core/intent.js";
 
 const EDIT_INTERVAL = 1500;
 
@@ -87,7 +86,7 @@ export class TelegramAdapter implements Adapter {
     const text = (msg.text || "").trim();
     console.log(`[telegram] ${uid}: ${text.slice(0, 50)}`);
 
-    // Commands
+    // Management commands
     if (text === "/start" || text === "/help") {
       await this.reply(chatId, t(this.locale, "help"));
       return;
@@ -125,74 +124,6 @@ export class TelegramAdapter implements Adapter {
       catch (e: any) { await this.reply(chatId, t(this.locale, "reload_failed") + e.message); }
       return;
     }
-    if (text.startsWith("/remember ")) {
-      const content = text.slice(10).trim();
-      if (!content) { await this.reply(chatId, t(this.locale, "usage_remember")); return; }
-      this.store.addMemory(String(uid), content);
-      await this.reply(chatId, t(this.locale, "memory_saved"));
-      return;
-    }
-    if (text === "/memories") {
-      const mems = this.store.getMemories(String(uid));
-      if (!mems.length) { await this.reply(chatId, t(this.locale, "no_memories")); return; }
-      await this.reply(chatId, mems.map(m => `[${m.source}] ${m.content}`).join("\n\n"));
-      return;
-    }
-    if (text === "/forget") {
-      this.store.clearMemories(String(uid));
-      await this.reply(chatId, t(this.locale, "memories_cleared"));
-      return;
-    }
-    if (text.startsWith("/task ")) {
-      const desc = text.slice(6).trim();
-      if (!desc) { await this.reply(chatId, t(this.locale, "usage_task")); return; }
-      const id = this.store.addTask(String(uid), "telegram", String(chatId), desc);
-      await this.reply(chatId, t(this.locale, "task_added", { id }));
-      return;
-    }
-    if (text === "/tasks") {
-      const tasks = this.store.getTasks(String(uid));
-      if (!tasks.length) { await this.reply(chatId, t(this.locale, "no_tasks")); return; }
-      await this.reply(chatId, tasks.map(t => `#${t.id} ${t.description}${t.remind_at ? ` ⏰${new Date(t.remind_at).toLocaleString()}` : ""}`).join("\n"));
-      return;
-    }
-    if (text.startsWith("/done ")) {
-      const id = parseInt(text.slice(6).trim());
-      if (isNaN(id)) { await this.reply(chatId, t(this.locale, "usage_done")); return; }
-      const ok = this.store.completeTask(id, String(uid));
-      await this.reply(chatId, ok ? t(this.locale, "task_done", { id }) : t(this.locale, "task_not_found", { id }));
-      return;
-    }
-    if (text.startsWith("/remind ")) {
-      const match = text.match(/^\/remind\s+(\d+)m\s+(.+)$/);
-      if (!match) { await this.reply(chatId, t(this.locale, "usage_remind")); return; }
-      const mins = parseInt(match[1]);
-      const desc = match[2].trim();
-      const remindAt = Date.now() + mins * 60000;
-      const id = this.store.addTask(String(uid), "telegram", String(chatId), desc, remindAt);
-      await this.reply(chatId, t(this.locale, "reminder_set", { id, mins }));
-      return;
-    }
-    if (text.startsWith("/auto ")) {
-      const desc = text.slice(6).trim();
-      if (!desc) { await this.reply(chatId, t(this.locale, "usage_auto")); return; }
-      const id = this.store.addTask(String(uid), "telegram", String(chatId), desc, undefined, true);
-      await this.reply(chatId, t(this.locale, "auto_queued", { id }));
-      return;
-    }
-    if (text === "/autotasks") {
-      const all = this.store.getAutoTasks(String(uid));
-      if (!all.length) { await this.reply(chatId, t(this.locale, "no_auto_tasks")); return; }
-      await this.reply(chatId, all.map(t => `#${t.id} [${t.status}] ${t.description}`).join("\n"));
-      return;
-    }
-    if (text.startsWith("/cancelauto ")) {
-      const id = parseInt(text.slice(12).trim());
-      if (isNaN(id)) { await this.reply(chatId, t(this.locale, "usage_cancelauto")); return; }
-      this.store.markTaskResult(id, "cancelled");
-      await this.reply(chatId, t(this.locale, "auto_cancelled", { id }));
-      return;
-    }
 
     // File upload
     if (msg.document || msg.photo) {
@@ -216,44 +147,7 @@ export class TelegramAdapter implements Adapter {
       return;
     }
 
-    // Intent detection (before sending to Claude)
-    if (text && !text.startsWith("/") && this.engine.getIntentConfig()?.enabled !== false) {
-      const intent = await detectIntent(text, this.engine.getRotator(), this.engine.getIntentConfig());
-      if (intent.type === "reminder" && intent.minutes && intent.description) {
-        const remindAt = Date.now() + intent.minutes * 60000;
-        const id = this.store.addTask(String(uid), "telegram", String(chatId), intent.description, remindAt);
-        await this.reply(chatId, t(this.locale, "intent_reminder_set", { mins: intent.minutes, desc: intent.description, id }));
-        return;
-      }
-      if (intent.type === "task" && intent.description) {
-        const id = this.store.addTask(String(uid), "telegram", String(chatId), intent.description);
-        await this.reply(chatId, t(this.locale, "intent_task_added", { id, desc: intent.description }));
-        return;
-      }
-      if (intent.type === "memory" && intent.description) {
-        // If description contains references to context ("上面", "this", "that", etc.),
-        // fall through to Claude conversation so it can resolve from session history
-        if (/上面|之前|刚才|这个|那个|above|previous|earlier|this|that/.test(intent.description)) {
-          // Don't intercept — let Claude handle it with full context
-        } else {
-          this.store.addMemory(String(uid), intent.description, "nlp");
-          await this.reply(chatId, t(this.locale, "intent_memory_saved", { desc: intent.description }));
-          return;
-        }
-      }
-      if (intent.type === "forget") {
-        this.store.clearMemories(String(uid));
-        await this.reply(chatId, t(this.locale, "memories_cleared"));
-        return;
-      }
-      if (intent.type === "clear_session") {
-        this.store.clearSession(String(uid));
-        await this.reply(chatId, t(this.locale, "session_cleared"));
-        return;
-      }
-    }
-
-    // Text message
+    // Text message — send to Claude (skill system handles intents)
     if (text) await this.handlePrompt(chatId, String(uid), text);
   }
 
@@ -268,7 +162,7 @@ export class TelegramAdapter implements Adapter {
 
     try {
       console.log(`[telegram] running claude for ${uid}...`);
-      const res = await this.engine.runStream(uid, text, "telegram",
+      const res = await this.engine.runStream(uid, text, "telegram", String(chatId),
         async (_chunk: string, full: string) => {
           const now = Date.now();
           if (now - lastEdit < EDIT_INTERVAL) return;
@@ -358,7 +252,7 @@ export class TelegramAdapter implements Adapter {
     await this.reply(chatId, t(this.locale, "auto_starting", { id: task.id, desc: task.description }));
     try {
       console.log(`[telegram] auto-task #${task.id} for ${task.user_id}`);
-      const res = await this.engine.runStream(task.user_id, task.description, "telegram");
+      const res = await this.engine.runStream(task.user_id, task.description, "telegram", task.chat_id);
       this.store.markTaskResult(task.id, "done");
       const maxLen = this.config.chunk_size || 4000;
       const chunks = chunkText(res.text || "(no output)", maxLen);
