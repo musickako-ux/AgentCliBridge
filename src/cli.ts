@@ -28,6 +28,10 @@ function writePid(pid: number) { ensureDir(); writeFileSync(PID_FILE, String(pid
 function removePid() { try { unlinkSync(PID_FILE); } catch {} }
 
 const args = process.argv.slice(2);
+if (args.includes("--help") || args.includes("-h")) {
+  console.log("Usage: claudebridge <start|stop|status|reload|init> [--config path] [--daemon|-d]");
+  process.exit(0);
+}
 const cmd = args.find(a => !a.startsWith("-")) || "start";
 const cfgIdx = args.indexOf("--config");
 const cfgPath = cfgIdx !== -1 ? args[cfgIdx + 1] : undefined;
