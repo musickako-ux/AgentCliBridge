@@ -142,8 +142,13 @@ if (category === "memory") {
     if (!taskId) fail("Usage: auto cancel <task_id>");
     db.prepare("UPDATE tasks SET status = 'cancelled' WHERE id = ?").run(parseInt(taskId));
     output({ ok: true, message: "Auto task cancelled" });
+  } else if (action === "clear") {
+    const [userId] = rest;
+    if (!userId) fail("Usage: auto clear <user_id>");
+    const r = db.prepare("DELETE FROM tasks WHERE user_id = ? AND status IN ('done','failed','cancelled')").run(userId);
+    output({ ok: true, deleted: r.changes, message: `Cleared ${r.changes} completed/failed/cancelled task(s)` });
   } else {
-    fail("Usage: auto <add|add-approval|result|list|cancel> ...");
+    fail("Usage: auto <add|add-approval|result|list|cancel|clear> ...");
   }
 } else {
   fail("Usage: claudebridge-ctl <memory|task|reminder|auto> <action> [args...]");
