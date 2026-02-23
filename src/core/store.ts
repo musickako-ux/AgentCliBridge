@@ -159,7 +159,10 @@ export class Store {
     this.db.prepare("UPDATE tasks SET reminder_sent = 1 WHERE id = ?").run(taskId);
   }
 
-  getNextAutoTask(): { id: number; user_id: string; platform: string; chat_id: string; description: string } | null {
+  getNextAutoTask(platform?: string): { id: number; user_id: string; platform: string; chat_id: string; description: string } | null {
+    if (platform) {
+      return (this.db.prepare("SELECT id, user_id, platform, chat_id, description FROM tasks WHERE status = 'auto' AND platform = ? ORDER BY created_at ASC LIMIT 1").get(platform) as any) ?? null;
+    }
     return (this.db.prepare("SELECT id, user_id, platform, chat_id, description FROM tasks WHERE status = 'auto' ORDER BY created_at ASC LIMIT 1").get() as any) ?? null;
   }
 

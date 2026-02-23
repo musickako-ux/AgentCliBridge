@@ -62,6 +62,13 @@ export function generateSkillDoc(ctx: SkillContext): string {
       `  2. "优化模块A：[具体描述，包含文件路径和修改内容]"`,
       `  3. "优化模块B：[具体描述]"`,
       `  4. "运行测试验证所有修改，提交代码，生成优化报告"`,
+      ``,
+      `### 跨任务记忆传递`,
+      `- 每个 auto-task 完成关键分析后，用 memory add 保存结论`,
+      `- 下一个 auto-task 会自动加载记忆，可以读取前序任务的成果`,
+      `- 示例：分析完成后调用 \`${ctl} memory add ${ctx.userId} "模块A优化点：1.重构API 2.添加缓存 3.修复N+1查询"\``,
+      `- 最后一个 auto-task 完成后，清理临时工作记忆（可选）`,
+      `- 重要：描述中包含"先用 memory list 查看前序任务的分析结果"可确保链式上下文不断`,
     ].join("\n");
   }
 
@@ -111,5 +118,12 @@ export function generateSkillDoc(ctx: SkillContext): string {
     `  2. "Optimize module A: [specific file paths and changes]"`,
     `  3. "Optimize module B: [specific description]"`,
     `  4. "Run tests, commit changes, generate optimization report"`,
+    ``,
+    `### Cross-Task Memory Bridging`,
+    `- After completing key analysis in an auto-task, save conclusions via memory add`,
+    `- The next auto-task automatically loads memories, accessing prior task findings`,
+    `- Example: after analysis, call \`${ctl} memory add ${ctx.userId} "Module A needs: 1.refactor API 2.add cache 3.fix N+1 queries"\``,
+    `- Optionally clean up temporary work memories after the final auto-task`,
+    `- Tip: include "first run memory list to review prior task findings" in descriptions to ensure chain continuity`,
   ].join("\n");
 }

@@ -12,6 +12,8 @@ const EDIT_INTERVAL = 1500;
 export class DiscordAdapter implements Adapter {
   private client: Client;
   private reminderTimer?: ReturnType<typeof setInterval>;
+  private autoTimer?: ReturnType<typeof setInterval>;
+  private autoRunning = false;
 
   constructor(
     private engine: AgentEngine,
@@ -156,10 +158,12 @@ export class DiscordAdapter implements Adapter {
     await this.client.login(this.config.token);
     console.log(`[discord] logged in as ${this.client.user?.tag}`);
     this.reminderTimer = setInterval(() => this.checkReminders(), 30000);
+    this.autoTimer = setInterval(() => this.processAutoTasks(), 60000);
   }
 
   stop(): void {
     if (this.reminderTimer) clearInterval(this.reminderTimer);
+    if (this.autoTimer) clearInterval(this.autoTimer);
     this.client.destroy();
   }
 
@@ -172,5 +176,37 @@ export class DiscordAdapter implements Adapter {
         this.store.markReminderSent(r.id);
       }
     } catch (e) { console.error("[discord] reminder error:", e); }
+  }
+
+  private async processAutoTasks(): Promise<void> {
+    if (this.autoRunning) return;
+    const task = this.store.getNextAutoTask("discord");
+    if (!task) return;
+    this.autoRunning = true;
+    this.store.markTaskRunning(task.id);
+    try {
+      const ch = await this.client.channels.fetch(task.chat_id);
+      if (!ch?.isTextBased() || !("send" in ch)) throw new Error("channel not found");
+      const channel = ch as any;
+      await channel.send(t(this.locale, "auto_starting", { id: task.id, desc: task.description }));
+      console.log(`[discord] auto-task #${task.id} for ${task.user_id}`);
+      const res = await this.engine.runStream(task.user_id, task.description, "discord", task.chat_id);
+      this.store.markTaskResult(task.id, "done");
+      const maxLen = this.config.chunk_size || 1900;
+      const chunks = chunkText(res.text || "(no output)", maxLen);
+      await channel.send(t(this.locale, "auto_done", { id: task.id, cost: (res.cost || 0).toFixed(4) }));
+      for (const c of chunks) await channel.send(c);
+    } catch (err: any) {
+      this.store.markTaskResult(task.id, "failed");
+      console.error(`[discord] auto-task #${task.id} failed:`, err);
+      try {
+        const ch = await this.client.channels.fetch(task.chat_id);
+        if (ch?.isTextBased() && "send" in ch) {
+          await (ch as any).send(t(this.locale, "auto_failed", { id: task.id, err: err.message || "unknown" }));
+        }
+      } catch {}
+    } finally {
+      this.autoRunning = false;
+    }
   }
 }

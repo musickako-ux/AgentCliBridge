@@ -352,7 +352,7 @@ export class TelegramAdapter implements Adapter {
 
   private async processAutoTasks(): Promise<void> {
     if (this.autoRunning) return;
-    const task = this.store.getNextAutoTask();
+    const task = this.store.getNextAutoTask("telegram");
     if (!task) return;
     this.autoRunning = true;
     this.store.markTaskRunning(task.id);
