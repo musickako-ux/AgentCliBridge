@@ -59,9 +59,10 @@ export class Store {
       CREATE INDEX IF NOT EXISTS idx_tasks_user ON tasks(user_id, status);
     `);
 
-    // Schema migration: add parent_id and result columns
+    // Schema migration: add parent_id, result, and scheduled_at columns
     try { this.db.exec("ALTER TABLE tasks ADD COLUMN parent_id INTEGER"); } catch {}
     try { this.db.exec("ALTER TABLE tasks ADD COLUMN result TEXT"); } catch {}
+    try { this.db.exec("ALTER TABLE tasks ADD COLUMN scheduled_at INTEGER"); } catch {}
     this.db.exec("CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_id)");
   }
 
@@ -144,8 +145,8 @@ export class Store {
   }
 
   // --- tasks ---
-  addTask(userId: string, platform: string, chatId: string, description: string, remindAt?: number, auto = false, parentId?: number): number {
-    const r = this.db.prepare("INSERT INTO tasks (user_id, platform, chat_id, description, status, remind_at, parent_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(userId, platform, chatId, description, auto ? "auto" : "pending", remindAt ?? null, parentId ?? null, Date.now());
+  addTask(userId: string, platform: string, chatId: string, description: string, remindAt?: number, auto = false, parentId?: number, scheduledAt?: number): number {
+    const r = this.db.prepare("INSERT INTO tasks (user_id, platform, chat_id, description, status, remind_at, parent_id, scheduled_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)").run(userId, platform, chatId, description, auto ? "auto" : "pending", remindAt ?? null, parentId ?? null, scheduledAt ?? null, Date.now());
     return Number(r.lastInsertRowid);
   }
 
@@ -167,10 +168,11 @@ export class Store {
   }
 
   getNextAutoTask(platform?: string): { id: number; user_id: string; platform: string; chat_id: string; description: string } | null {
+    const now = Date.now();
     if (platform) {
-      return (this.db.prepare("SELECT id, user_id, platform, chat_id, description FROM tasks WHERE status = 'auto' AND platform = ? ORDER BY created_at ASC LIMIT 1").get(platform) as any) ?? null;
+      return (this.db.prepare("SELECT id, user_id, platform, chat_id, description FROM tasks WHERE status = 'auto' AND platform = ? AND (scheduled_at IS NULL OR scheduled_at <= ?) ORDER BY created_at ASC LIMIT 1").get(platform, now) as any) ?? null;
     }
-    return (this.db.prepare("SELECT id, user_id, platform, chat_id, description FROM tasks WHERE status = 'auto' ORDER BY created_at ASC LIMIT 1").get() as any) ?? null;
+    return (this.db.prepare("SELECT id, user_id, platform, chat_id, description FROM tasks WHERE status = 'auto' AND (scheduled_at IS NULL OR scheduled_at <= ?) ORDER BY created_at ASC LIMIT 1").get(now) as any) ?? null;
   }
 
   markTaskRunning(taskId: number): void {
@@ -181,13 +183,13 @@ export class Store {
     this.db.prepare("UPDATE tasks SET status = ? WHERE id = ?").run(status, taskId);
   }
 
-  getAutoTasks(userId: string): { id: number; description: string; status: string; created_at: number }[] {
-    return this.db.prepare("SELECT id, description, status, created_at FROM tasks WHERE user_id = ? AND status IN ('auto','running') ORDER BY created_at DESC").all(userId) as any[];
+  getAutoTasks(userId: string): { id: number; description: string; status: string; scheduled_at: number | null; created_at: number }[] {
+    return this.db.prepare("SELECT id, description, status, scheduled_at, created_at FROM tasks WHERE user_id = ? AND status IN ('auto','running') ORDER BY created_at DESC").all(userId) as any[];
   }
 
   // --- HITL (Human-in-the-Loop) ---
-  addApprovalTask(userId: string, platform: string, chatId: string, description: string, parentId?: number): number {
-    const r = this.db.prepare("INSERT INTO tasks (user_id, platform, chat_id, description, status, parent_id, created_at) VALUES (?, ?, ?, ?, 'approval_pending', ?, ?)").run(userId, platform, chatId, description, parentId ?? null, Date.now());
+  addApprovalTask(userId: string, platform: string, chatId: string, description: string, parentId?: number, scheduledAt?: number): number {
+    const r = this.db.prepare("INSERT INTO tasks (user_id, platform, chat_id, description, status, parent_id, scheduled_at, created_at) VALUES (?, ?, ?, ?, 'approval_pending', ?, ?, ?)").run(userId, platform, chatId, description, parentId ?? null, scheduledAt ?? null, Date.now());
     return Number(r.lastInsertRowid);
   }
 
@@ -216,7 +218,7 @@ export class Store {
 
   // --- Parallel ---
   getNextAutoTasks(platform: string, limit: number): { id: number; user_id: string; platform: string; chat_id: string; description: string; parent_id: number | null }[] {
-    return this.db.prepare("SELECT id, user_id, platform, chat_id, description, parent_id FROM tasks WHERE status = 'auto' AND platform = ? ORDER BY created_at ASC LIMIT ?").all(platform, limit) as any[];
+    return this.db.prepare("SELECT id, user_id, platform, chat_id, description, parent_id FROM tasks WHERE status = 'auto' AND platform = ? AND (scheduled_at IS NULL OR scheduled_at <= ?) ORDER BY created_at ASC LIMIT ?").all(platform, Date.now(), limit) as any[];
   }
 
   // --- Observability ---
@@ -239,7 +241,7 @@ export class Store {
     return result;
   }
 
-  getRecentAutoTasks(platform: string, limit: number): { id: number; user_id: string; description: string; status: string; parent_id: number | null; created_at: number }[] {
-    return this.db.prepare("SELECT id, user_id, description, status, parent_id, created_at FROM tasks WHERE platform = ? AND status IN ('auto','running','done','failed','approval_pending','cancelled') ORDER BY created_at DESC LIMIT ?").all(platform, limit) as any[];
+  getRecentAutoTasks(platform: string, limit: number): { id: number; user_id: string; description: string; status: string; parent_id: number | null; scheduled_at: number | null; created_at: number }[] {
+    return this.db.prepare("SELECT id, user_id, description, status, parent_id, scheduled_at, created_at FROM tasks WHERE platform = ? AND status IN ('auto','running','done','failed','approval_pending','cancelled') ORDER BY created_at DESC LIMIT ?").all(platform, limit) as any[];
   }
 }

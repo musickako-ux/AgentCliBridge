@@ -95,21 +95,37 @@ if (category === "memory") {
       parentId = parseInt(descParts[parentIdx + 1]);
       descParts.splice(parentIdx, 2);
     }
+    // Parse optional --delay flag
+    let scheduledAt: number | null = null;
+    const delayIdx = descParts.indexOf("--delay");
+    if (delayIdx !== -1 && descParts[delayIdx + 1]) {
+      const delayMin = parseInt(descParts[delayIdx + 1]);
+      scheduledAt = Date.now() + delayMin * 60000;
+      descParts.splice(delayIdx, 2);
+    }
     const desc = descParts.join(" ");
-    const r = db.prepare("INSERT INTO tasks (user_id, platform, chat_id, description, status, parent_id, created_at) VALUES (?, ?, ?, ?, 'auto', ?, ?)").run(userId, platform, chatId, desc, parentId, Date.now());
-    output({ ok: true, id: Number(r.lastInsertRowid), message: "Auto task queued" });
+    const r = db.prepare("INSERT INTO tasks (user_id, platform, chat_id, description, status, parent_id, scheduled_at, created_at) VALUES (?, ?, ?, ?, 'auto', ?, ?, ?)").run(userId, platform, chatId, desc, parentId, scheduledAt, Date.now());
+    output({ ok: true, id: Number(r.lastInsertRowid), scheduled_at: scheduledAt, message: scheduledAt ? `Auto task scheduled (in ${Math.ceil((scheduledAt - Date.now()) / 60000)} min)` : "Auto task queued" });
   } else if (action === "add-approval") {
     const [userId, platform, chatId, ...descParts] = rest;
-    if (!userId || !platform || !chatId || !descParts.length) fail("Usage: auto add-approval <user_id> <platform> <chat_id> <description> [--parent <id>]");
+    if (!userId || !platform || !chatId || !descParts.length) fail("Usage: auto add-approval <user_id> <platform> <chat_id> <description> [--parent <id>] [--delay <minutes>]");
     let parentId: number | null = null;
     const parentIdx = descParts.indexOf("--parent");
     if (parentIdx !== -1 && descParts[parentIdx + 1]) {
       parentId = parseInt(descParts[parentIdx + 1]);
       descParts.splice(parentIdx, 2);
     }
+    // Parse optional --delay flag
+    let scheduledAt: number | null = null;
+    const delayIdx = descParts.indexOf("--delay");
+    if (delayIdx !== -1 && descParts[delayIdx + 1]) {
+      const delayMin = parseInt(descParts[delayIdx + 1]);
+      scheduledAt = Date.now() + delayMin * 60000;
+      descParts.splice(delayIdx, 2);
+    }
     const desc = descParts.join(" ");
-    const r = db.prepare("INSERT INTO tasks (user_id, platform, chat_id, description, status, parent_id, created_at) VALUES (?, ?, ?, ?, 'approval_pending', ?, ?)").run(userId, platform, chatId, desc, parentId, Date.now());
-    output({ ok: true, id: Number(r.lastInsertRowid), message: "Auto task queued for approval" });
+    const r = db.prepare("INSERT INTO tasks (user_id, platform, chat_id, description, status, parent_id, scheduled_at, created_at) VALUES (?, ?, ?, ?, 'approval_pending', ?, ?, ?)").run(userId, platform, chatId, desc, parentId, scheduledAt, Date.now());
+    output({ ok: true, id: Number(r.lastInsertRowid), scheduled_at: scheduledAt, message: scheduledAt ? `Auto task queued for approval (scheduled in ${Math.ceil((scheduledAt - Date.now()) / 60000)} min)` : "Auto task queued for approval" });
   } else if (action === "result") {
     const [taskId, ...resultParts] = rest;
     if (!taskId || !resultParts.length) fail("Usage: auto result <task_id> <result_text>");
@@ -119,7 +135,7 @@ if (category === "memory") {
   } else if (action === "list") {
     const [userId] = rest;
     if (!userId) fail("Usage: auto list <user_id>");
-    const rows = db.prepare("SELECT id, description, status, created_at FROM tasks WHERE user_id = ? AND status IN ('auto','running') ORDER BY created_at DESC").all(userId);
+    const rows = db.prepare("SELECT id, description, status, scheduled_at, created_at FROM tasks WHERE user_id = ? AND status IN ('auto','running') ORDER BY created_at DESC").all(userId);
     output({ ok: true, tasks: rows });
   } else if (action === "cancel") {
     const [taskId] = rest;

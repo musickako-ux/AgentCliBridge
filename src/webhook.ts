@@ -64,12 +64,13 @@ export class WebhookServer {
           return;
         }
         let id: number;
+        const scheduledAt = data.delay_minutes ? Date.now() + data.delay_minutes * 60000 : undefined;
         if (data.approval) {
-          id = this.store.addApprovalTask(data.user_id, data.platform, data.chat_id, data.description, data.parent_id);
+          id = this.store.addApprovalTask(data.user_id, data.platform, data.chat_id, data.description, data.parent_id, scheduledAt);
         } else {
-          id = this.store.addTask(data.user_id, data.platform, data.chat_id, data.description, undefined, true, data.parent_id);
+          id = this.store.addTask(data.user_id, data.platform, data.chat_id, data.description, undefined, true, data.parent_id, scheduledAt);
         }
-        this.json(res, 201, { ok: true, id, status: data.approval ? "approval_pending" : "auto" });
+        this.json(res, 201, { ok: true, id, status: data.approval ? "approval_pending" : "auto", scheduled_at: scheduledAt || null });
       } catch (e: any) {
         this.json(res, 400, { error: e.message || "Invalid JSON" });
       }

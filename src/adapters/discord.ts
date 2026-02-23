@@ -281,7 +281,12 @@ export class DiscordAdapter implements Adapter {
     };
     const lines = recent.map(task => {
       const chain = task.parent_id ? ` (chain #${task.parent_id})` : "";
-      return `${statusEmoji[task.status] || "[?]"} #${task.id} [${task.status}] ${task.description.slice(0, 60)}${chain}`;
+      let schedInfo = "";
+      if (task.status === "auto" && task.scheduled_at && task.scheduled_at > Date.now()) {
+        const mins = Math.ceil((task.scheduled_at - Date.now()) / 60000);
+        schedInfo = ` [in ${mins}min]`;
+      }
+      return `${statusEmoji[task.status] || "[?]"} #${task.id} [${task.status}]${schedInfo} ${task.description.slice(0, 60)}${chain}`;
     });
     const stats = this.store.getAutoTaskStats();
     const summary = stats.map(s => `${s.status}: ${s.count}`).join(" | ");
