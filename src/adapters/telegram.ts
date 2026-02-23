@@ -262,7 +262,7 @@ export class TelegramAdapter implements Adapter {
           const now = Date.now();
           if (now - lastEdit < EDIT_INTERVAL) return;
           lastEdit = now;
-          const preview = full.slice(-3500) + "\n\n⏳...";
+          const preview = full.slice(-3500) + "\n\n...";
           await this.editMsg(chatId, msgId, preview);
         }
       );
@@ -408,8 +408,8 @@ export class TelegramAdapter implements Adapter {
         const chatId = Number(task.chat_id);
         const keyboard = {
           inline_keyboard: [[
-            { text: "✅ Approve", callback_data: `approve:${task.id}` },
-            { text: "❌ Reject", callback_data: `reject:${task.id}` },
+            { text: "Approve", callback_data: `approve:${task.id}` },
+            { text: "Reject", callback_data: `reject:${task.id}` },
           ]],
         };
         await this.call("sendMessage", {
@@ -475,13 +475,12 @@ export class TelegramAdapter implements Adapter {
       return;
     }
     const statusEmoji: Record<string, string> = {
-      auto: "⏳", running: "🔄", done: "✅", failed: "❌",
-      approval_pending: "📋", cancelled: "🚫",
+      auto: "[queue]", running: "[run]", done: "[done]", failed: "[fail]",
+      approval_pending: "[pending]", cancelled: "[cancel]",
     };
     const lines = recent.map(task => {
-      const emoji = statusEmoji[task.status] || "❓";
       const chain = task.parent_id ? ` (chain #${task.parent_id})` : "";
-      return `${emoji} #${task.id} [${task.status}] ${task.description.slice(0, 60)}${chain}`;
+      return `${statusEmoji[task.status] || "[?]"} #${task.id} [${task.status}] ${task.description.slice(0, 60)}${chain}`;
     });
     const stats = this.store.getAutoTaskStats();
     const summary = stats.map(s => `${s.status}: ${s.count}`).join(" | ");

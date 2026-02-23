@@ -153,7 +153,7 @@ export class DiscordAdapter implements Adapter {
         async (_chunk: string, full: string) => {
           const now = Date.now();
           if (now - lastEdit < EDIT_INTERVAL) return;
-          const preview = full.slice(-1900) + "\n\n⏳...";
+          const preview = full.slice(-1900) + "\n\n...";
           if (preview === lastText) return;
           lastText = preview;
           lastEdit = now;
@@ -270,13 +270,12 @@ export class DiscordAdapter implements Adapter {
       return;
     }
     const statusEmoji: Record<string, string> = {
-      auto: "⏳", running: "🔄", done: "✅", failed: "❌",
-      approval_pending: "📋", cancelled: "🚫",
+      auto: "[queue]", running: "[run]", done: "[done]", failed: "[fail]",
+      approval_pending: "[pending]", cancelled: "[cancel]",
     };
     const lines = recent.map(task => {
-      const emoji = statusEmoji[task.status] || "❓";
       const chain = task.parent_id ? ` (chain #${task.parent_id})` : "";
-      return `${emoji} #${task.id} [${task.status}] ${task.description.slice(0, 60)}${chain}`;
+      return `${statusEmoji[task.status] || "[?]"} #${task.id} [${task.status}] ${task.description.slice(0, 60)}${chain}`;
     });
     const stats = this.store.getAutoTaskStats();
     const summary = stats.map(s => `${s.status}: ${s.count}`).join(" | ");

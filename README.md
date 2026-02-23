@@ -32,11 +32,11 @@ Instead of hardcoded commands, ClaudeBridge injects a **skill document** into Cl
 
 ### v0.5.0: Agent Gateway Features
 
-- **🔒 Human-in-the-Loop (HITL)**: Critical tasks require user approval via inline buttons (Telegram) or commands (Discord) before execution
-- **🔀 Conditional Branching**: Scout pattern — task 1 analyzes, saves results, dynamically creates follow-up tasks with `--parent` linking
-- **🌐 Webhook Triggers**: HTTP API + GitHub webhooks + cron scheduler — trigger auto-tasks from external systems
-- **⚡ Parallel Execution**: Multiple `claude` instances running simultaneously (`max_parallel` config)
-- **📊 Observability**: `/status` command shows task queue, chain progress, and execution stats
+- **Human-in-the-Loop (HITL)**: Critical tasks require user approval via inline buttons (Telegram) or commands (Discord) before execution
+- **Conditional Branching**: Scout pattern — task 1 analyzes, saves results, dynamically creates follow-up tasks with `--parent` linking
+- **Webhook Triggers**: HTTP API + GitHub webhooks + cron scheduler — trigger auto-tasks from external systems
+- **Parallel Execution**: Multiple `claude` instances running simultaneously (`max_parallel` config)
+- **Observability**: `/status` command shows task queue, chain progress, and execution stats
 
 ## Quick Start
 
@@ -149,7 +149,7 @@ All other interactions are handled naturally by Claude through the skill system 
 
 When Claude determines a task is critical (deployment, deletion, production changes), it uses `ctl auto add-approval` instead of `ctl auto add`. The task enters `approval_pending` status:
 
-- **Telegram**: Inline keyboard with ✅ Approve / ❌ Reject buttons
+- **Telegram**: Inline keyboard with Approve / Reject buttons
 - **Discord**: Bot sends approval request, user replies `!approve <id>` or `!reject <id>`
 
 Only after approval does the task enter the execution queue.
@@ -166,7 +166,7 @@ Task #1 (scout): "Analyze performance bottlenecks"
   Task #4: "Run benchmarks"         (--parent 1)
 ```
 
-Chain progress is reported automatically: `📊 Chain #1 progress: 2/4 done`
+Chain progress is reported automatically: `Chain #1 progress: 2/4 done`
 
 Results are persisted via `ctl auto result <id> "summary"` and cross-task context flows through the memory system.
 
@@ -299,11 +299,11 @@ MIT
 
 ### v0.5.0：Agent Gateway 特性
 
-- **🔒 人机协同 (HITL)**：关键任务需要用户通过内联按钮（Telegram）或命令（Discord）审批后才执行
-- **🔀 条件分支**：侦查模式 — 任务1分析，保存结果，动态创建后续任务并通过 `--parent` 关联
-- **🌐 Webhook 触发**：HTTP API + GitHub webhooks + 定时任务 — 从外部系统触发自动任务
-- **⚡ 并行执行**：多个 `claude` 实例同时运行（`max_parallel` 配置）
-- **📊 可观测性**：`/status` 命令显示任务队列、链路进度和执行统计
+- **人机协同 (HITL)**：关键任务需要用户通过内联按钮（Telegram）或命令（Discord）审批后才执行
+- **条件分支**：侦查模式 — 任务1分析，保存结果，动态创建后续任务并通过 `--parent` 关联
+- **Webhook 触发**：HTTP API + GitHub webhooks + 定时任务 — 从外部系统触发自动任务
+- **并行执行**：多个 `claude` 实例同时运行（`max_parallel` 配置）
+- **可观测性**：`/status` 命令显示任务队列、链路进度和执行统计
 
 ## 快速开始
 
@@ -352,7 +352,7 @@ Discord 还支持：`!approve <id>`、`!reject <id>` 用于 HITL 审批。
 
 当 Claude 判定任务为关键操作（部署、删除、生产变更）时，使用 `ctl auto add-approval` 代替 `ctl auto add`。任务进入 `approval_pending` 状态：
 
-- **Telegram**：内联键盘显示 ✅ 批准 / ❌ 拒绝 按钮
+- **Telegram**：内联键盘显示 Approve / Reject 按钮
 - **Discord**：Bot 发送审批请求，用户回复 `!approve <id>` 或 `!reject <id>`
 
 只有审批通过后，任务才进入执行队列。
@@ -369,7 +369,7 @@ Discord 还支持：`!approve <id>`、`!reject <id>` 用于 HITL 审批。
   任务 #4："运行基准测试"          (--parent 1)
 ```
 
-链路进度自动报告：`📊 任务链 #1 进度：2/4 完成`
+链路进度自动报告：`Chain #1 progress: 2/4 done`
 
 ## Webhook 与定时任务
 
