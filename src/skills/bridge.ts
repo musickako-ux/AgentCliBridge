@@ -50,6 +50,18 @@ export function generateSkillDoc(ctx: SkillContext): string {
       `- 用户要添加任务/待办 → 使用 task add`,
       `- 命令输出 JSON，请用自然语言向用户回复结果，不要直接展示 JSON`,
       `- 提醒会由 Bridge 定时器自动推送，你只需创建即可`,
+      ``,
+      `### 高级用法：任务自动分解`,
+      `- 遇到复杂/大型任务时，必须拆分为多个 auto-task 分步执行`,
+      `- 每个 auto-task 应该是独立可完成的小任务（预算内可完成）`,
+      `- auto-task 按创建顺序排队，每60秒执行一个`,
+      `- 在 auto-task 执行中可以创建新的 auto-task（链式执行）`,
+      `- 每个 auto-task 的描述要足够详细，因为它会在全新会话中执行`,
+      `- 示例：用户说"优化整个项目" → 创建多个 auto-task:`,
+      `  1. "分析项目结构，列出所有需要优化的模块和具体改进点"`,
+      `  2. "优化模块A：[具体描述，包含文件路径和修改内容]"`,
+      `  3. "优化模块B：[具体描述]"`,
+      `  4. "运行测试验证所有修改，提交代码，生成优化报告"`,
     ].join("\n");
   }
 
@@ -87,5 +99,17 @@ export function generateSkillDoc(ctx: SkillContext): string {
     `- User wants to add a task/todo → use task add`,
     `- Commands output JSON. Respond to the user in natural language, do not dump raw JSON.`,
     `- Reminders are automatically pushed by Bridge timers — you only need to create them.`,
+    ``,
+    `### Advanced: Auto-Task Decomposition`,
+    `- For complex/large tasks, decompose into multiple auto-tasks`,
+    `- Each auto-task should be independently completable within budget`,
+    `- Auto-tasks execute in FIFO order, one every 60 seconds`,
+    `- An auto-task can create new auto-tasks (chaining)`,
+    `- Each description must be detailed enough for a fresh session`,
+    `- Example: user says "optimize the project" → create:`,
+    `  1. "Analyze project structure, list modules needing optimization"`,
+    `  2. "Optimize module A: [specific file paths and changes]"`,
+    `  3. "Optimize module B: [specific description]"`,
+    `  4. "Run tests, commit changes, generate optimization report"`,
   ].join("\n");
 }
