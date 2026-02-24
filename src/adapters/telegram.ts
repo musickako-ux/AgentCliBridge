@@ -91,7 +91,9 @@ export class TelegramAdapter implements Adapter {
         text,
         ...(parseMode ? { parse_mode: parseMode } : {}),
       });
-    } catch {}
+    } catch (e: any) {
+      if (parseMode) log.warn("editMsg failed", { parseMode, error: e?.message?.slice(0, 200) });
+    }
   }
 
   private async handleUpdate(update: TgUpdate) {
@@ -347,8 +349,11 @@ export class TelegramAdapter implements Adapter {
 
     if (mdChunks.length <= 1) {
       try {
-        await this.editMsg(chatId, msgId, mdChunks[0], "MarkdownV2");
-      } catch {
+        await this.call("editMessageText", {
+          chat_id: chatId, message_id: msgId, text: mdChunks[0], parse_mode: "MarkdownV2",
+        });
+      } catch (e: any) {
+        log.warn("MarkdownV2 fallback", { error: e?.message?.slice(0, 200) });
         await this.editMsg(chatId, msgId, fullText);
       }
     } else {
