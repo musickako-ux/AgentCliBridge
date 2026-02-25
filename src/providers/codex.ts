@@ -40,18 +40,16 @@ export class CodexProvider implements Provider {
             if (item.text) return { type: "text_chunk", text: item.text };
             break;
           case "reasoning":
-            if (item.text) return { type: "text_chunk", text: `> {{p_thinking}}: ${item.text}` };
+            if (item.text) return { type: "text_chunk", text: `> {{p_thinking}}: ${item.text.slice(0, 100)}` };
             break;
           case "command_execution":
             if (item.command) {
               const cmd = item.command.replace(/^\/bin\/bash -lc ['"]?/, "").replace(/['"]?$/, "").slice(0, 200);
               const exit = item.exit_code != null ? ` (exit ${item.exit_code})` : "";
-              let text = `\`\`\`\n{{p_cmd}}${cmd}${exit}\n\`\`\``;
-              if (item.aggregated_output) {
-                const safe = item.aggregated_output.slice(0, 500).replace(/```/g, "\\`\\`\\`");
-                text += `\n\`\`\`\n${safe}\n\`\`\``;
-              }
-              return { type: "text_chunk", text };
+              const output = item.aggregated_output
+                ? "\n" + item.aggregated_output.slice(0, 500).replace(/```/g, "\\`\\`\\`")
+                : "";
+              return { type: "text_chunk", text: `\`\`\`\n{{p_cmd}}${cmd}${exit}${output}\n\`\`\`` };
             }
             break;
           case "file_change":
