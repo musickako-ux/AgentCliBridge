@@ -364,7 +364,7 @@ export class TelegramAdapter extends AdapterBase {
               const now = Date.now();
               if (now - lastEdit < EDIT_INTERVAL) return;
               lastEdit = now;
-              const preview = full.slice(-3500) + "\n\n...";
+              const preview = full.length > 3500 ? full.slice(-3500) + "\n\n..." : full + "\n\n⏳";
               await this.editMsg(chatId, msgId, preview);
             }
           );
@@ -403,7 +403,7 @@ export class TelegramAdapter extends AdapterBase {
             const now = Date.now();
             if (now - lastEdit < EDIT_INTERVAL) return;
             lastEdit = now;
-            const preview = full.slice(-3500) + "\n\n...";
+            const preview = full.length > 3500 ? full.slice(-3500) + "\n\n..." : full + "\n\n⏳";
             await this.editMsg(chatId, msgId, preview);
           }
         );
