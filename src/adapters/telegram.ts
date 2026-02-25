@@ -356,6 +356,7 @@ export class TelegramAdapter extends AdapterBase {
         const placeholder = await this.reply(chatId, t(this.locale, "thinking"));
         const msgId = placeholder.message_id;
         let lastEdit = 0;
+        let editCount = 0;
 
         try {
           reqLog.info("running claude (multi-session)", { uid });
@@ -364,7 +365,9 @@ export class TelegramAdapter extends AdapterBase {
               const now = Date.now();
               if (now - lastEdit < EDIT_INTERVAL) return;
               lastEdit = now;
-              const preview = full.length > 3500 ? full.slice(-3500) + "\n\n..." : full + "\n\n⏳";
+              editCount++;
+              const dots = ".".repeat((editCount % 3) + 1);
+              const preview = full.length > 3500 ? full.slice(-3500) + "\n\n..." : full + "\n\n" + dots;
               await this.editMsg(chatId, msgId, preview);
             }
           );
@@ -395,6 +398,7 @@ export class TelegramAdapter extends AdapterBase {
       const placeholder = await this.reply(chatId, t(this.locale, "thinking"));
       const msgId = placeholder.message_id;
       let lastEdit = 0;
+      let editCount = 0;
 
       try {
         reqLog.info("running claude", { uid });
@@ -403,7 +407,9 @@ export class TelegramAdapter extends AdapterBase {
             const now = Date.now();
             if (now - lastEdit < EDIT_INTERVAL) return;
             lastEdit = now;
-            const preview = full.length > 3500 ? full.slice(-3500) + "\n\n..." : full + "\n\n⏳";
+            editCount++;
+            const dots = ".".repeat((editCount % 3) + 1);
+            const preview = full.length > 3500 ? full.slice(-3500) + "\n\n..." : full + "\n\n" + dots;
             await this.editMsg(chatId, msgId, preview);
           }
         );
