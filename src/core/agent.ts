@@ -165,11 +165,11 @@ export class AgentEngine {
       subSession.label = prompt.slice(0, 50);
     }
 
-    // 6. Auto-summarize
-    if (this.config.agent.memory?.auto_summary) this._autoSummarize(userId, prompt, res.text, onChunk);
+    // 6. Auto-summarize (no notify — response already sent)
+    if (this.config.agent.memory?.auto_summary) this._autoSummarize(userId, prompt, res.text);
 
     // 7. Sync sub-session summary for dispatcher context
-    this._syncSessionSummary(subSession, prompt, res.text, onChunk);
+    this._syncSessionSummary(subSession, prompt, res.text);
 
     return { ...res, subSessionId: subSession.id, label: subSession.label };
   }
