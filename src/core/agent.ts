@@ -324,6 +324,10 @@ export class AgentEngine {
               if (event.cost) cost = event.cost;
               if (verbose && event.isError) log.error("agent error result", { label });
               break;
+            default:
+              // Heartbeat: notify caller that agent is still alive (keeps streaming dots moving)
+              if (opts.onChunk && fullText) opts.onChunk("", fullText);
+              break;
           }
         }
       });
