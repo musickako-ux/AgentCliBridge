@@ -33,8 +33,40 @@ export class CodexProvider implements Provider {
       if (msg.type === "thread.started" && msg.thread_id) {
         return { type: "session_init", sessionId: msg.thread_id };
       }
-      if (msg.type === "item.completed" && msg.item?.type === "agent_message" && msg.item.text) {
-        return { type: "text_chunk", text: msg.item.text };
+      if (msg.type === "item.completed" && msg.item) {
+        const item = msg.item;
+        switch (item.type) {
+          case "agent_message":
+            if (item.text) return { type: "text_chunk", text: item.text };
+            break;
+          case "reasoning":
+            if (item.text) return { type: "text_chunk", text: `💭 ${item.text}` };
+            break;
+          case "command_execution":
+            if (item.command) {
+              const cmd = item.command.replace(/^\/bin\/bash -lc ['"]?/, "").replace(/['"]?$/, "").slice(0, 200);
+              const exit = item.exit_code != null ? ` → exit ${item.exit_code}` : "";
+              const out = item.aggregated_output ? `\n\`\`\`\n${item.aggregated_output.slice(0, 500)}\n\`\`\`` : "";
+              return { type: "text_chunk", text: `$ ${cmd}${exit}${out}` };
+            }
+            break;
+          case "file_change":
+            if (item.changes?.length) {
+              const files = item.changes.map((c: any) => `${c.kind === "add" ? "+" : "~"} ${c.path}`).join("\n");
+              return { type: "text_chunk", text: `📝\n${files}` };
+            }
+            break;
+          case "todo_list":
+            if (item.items?.length) {
+              const list = item.items.map((t: any) => `${t.completed ? "✅" : "⬜"} ${t.text}`).join("\n");
+              return { type: "text_chunk", text: list };
+            }
+            break;
+        }
+      }
+      if (msg.type === "item.updated" && msg.item?.type === "todo_list" && msg.item.items?.length) {
+        const list = msg.item.items.map((t: any) => `${t.completed ? "✅" : "⬜"} ${t.text}`).join("\n");
+        return { type: "text_chunk", text: list };
       }
       if (msg.type === "turn.completed") {
         const usage = msg.usage || {};
