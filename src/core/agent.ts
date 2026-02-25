@@ -12,6 +12,7 @@ import { generateSkillDoc } from "../skills/bridge.js";
 import { SessionManager, SubSession } from "./session.js";
 import { Dispatcher, RouterDecision } from "./router.js";
 import { log as rootLog } from "./logger.js";
+import { t } from "./i18n.js";
 import { getProvider } from "../providers/registry.js";
 import type { Provider } from "../providers/base.js";
 
@@ -315,8 +316,9 @@ export class AgentEngine {
               break;
             case "text_chunk":
               if (event.text) {
-                fullText += event.text + "\n";
-                if (opts.onChunk) opts.onChunk(event.text, fullText);
+                const localized = event.text.replace(/\{\{(p_\w+)\}\}/g, (_, key) => t(this.config.locale, key));
+                fullText += localized + "\n";
+                if (opts.onChunk) opts.onChunk(localized, fullText);
               }
               break;
             case "result":

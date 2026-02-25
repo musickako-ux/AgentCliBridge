@@ -36,25 +36,25 @@ export class ClaudeProvider implements Provider {
             const inp = b.input || {};
             switch (b.name) {
               case "Bash":
-                parts.push(`\`$ ${(inp.command || "").slice(0, 200)}\``);
+                parts.push(`\`{{p_cmd}}${(inp.command || "").slice(0, 200)}\``);
                 break;
               case "Read":
-                parts.push(`> 📖 \`${inp.file_path || ""}\``);
+                parts.push(`> {{p_read}} \`${inp.file_path || ""}\``);
                 break;
               case "Edit":
-                parts.push(`> ✏️ \`${inp.file_path || ""}\``);
+                parts.push(`> {{p_edit}} \`${inp.file_path || ""}\``);
                 break;
               case "Write":
-                parts.push(`> 📝 \`${inp.file_path || ""}\``);
+                parts.push(`> {{p_write}} \`${inp.file_path || ""}\``);
                 break;
               case "Glob":
-                parts.push(`> 🔍 \`${inp.pattern || ""}\``);
+                parts.push(`> {{p_search}} \`${inp.pattern || ""}\``);
                 break;
               case "Grep":
-                parts.push(`> 🔍 grep \`${inp.pattern || ""}\``);
+                parts.push(`> {{p_search}} grep \`${inp.pattern || ""}\``);
                 break;
               default:
-                parts.push(`> 🔧 ${b.name}`);
+                parts.push(`> {{p_tool}} ${b.name}`);
             }
           }
         }
@@ -63,7 +63,8 @@ export class ClaudeProvider implements Provider {
       if (msg.type === "user" && msg.message?.content) {
         for (const b of msg.message.content) {
           if (b.type === "tool_result" && typeof b.content === "string" && b.content.length > 0) {
-            return { type: "text_chunk", text: `\`\`\`\n${b.content.slice(0, 500)}\n\`\`\`` };
+            const safe = b.content.slice(0, 500).replace(/```/g, "\\`\\`\\`");
+            return { type: "text_chunk", text: `\`\`\`\n${safe}\n\`\`\`` };
           }
         }
       }

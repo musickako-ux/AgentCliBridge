@@ -40,14 +40,17 @@ export class CodexProvider implements Provider {
             if (item.text) return { type: "text_chunk", text: item.text };
             break;
           case "reasoning":
-            if (item.text) return { type: "text_chunk", text: `> 💭 ${item.text}` };
+            if (item.text) return { type: "text_chunk", text: `> {{p_thinking}} ${item.text}` };
             break;
           case "command_execution":
             if (item.command) {
               const cmd = item.command.replace(/^\/bin\/bash -lc ['"]?/, "").replace(/['"]?$/, "").slice(0, 200);
               const exit = item.exit_code != null ? ` (exit ${item.exit_code})` : "";
-              let text = `\`$ ${cmd}\`${exit}`;
-              if (item.aggregated_output) text += `\n\`\`\`\n${item.aggregated_output.slice(0, 500)}\n\`\`\``;
+              let text = `\`{{p_cmd}}${cmd}\`${exit}`;
+              if (item.aggregated_output) {
+                const safe = item.aggregated_output.slice(0, 500).replace(/```/g, "\\`\\`\\`");
+                text += `\n\`\`\`\n${safe}\n\`\`\``;
+              }
               return { type: "text_chunk", text };
             }
             break;
@@ -78,7 +81,7 @@ export class CodexProvider implements Provider {
         return { type: "result", text: msg.error?.message || "turn failed", isError: true };
       }
       if (msg.type === "error" && msg.message) {
-        return { type: "text_chunk", text: `⚠ ${msg.message}` };
+        return { type: "text_chunk", text: `{{p_warn}} ${msg.message}` };
       }
     } catch {}
     return { type: "unknown" };

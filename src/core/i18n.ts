@@ -29,6 +29,15 @@ const messages: Record<string, Record<string, string>> = {
     session_limit: "Session limit reached. Oldest idle session closed.",
     unsupported_media: "Sorry, I can only process text, documents, and images. Voice messages, videos, stickers, and animations are not supported yet.",
     queue_full: "Task queue is full ({count}/{max}). Please wait for existing tasks to complete or cancel some.",
+    // Provider streaming labels
+    p_thinking: "💭 Thinking",
+    p_read: "📖 Read",
+    p_edit: "✏️ Edit",
+    p_write: "📝 Write",
+    p_search: "🔍 Search",
+    p_tool: "🔧 Tool",
+    p_warn: "⚠ Warning",
+    p_cmd: "$ ",
   },
   zh: {
     help: "AgentCliBridge 就绪。\n\n管理命令：\n/new - 清除会话\n/usage - 你的用量\n/allusage - 所有用量\n/history - 最近对话\n/model - 端点信息\n/status - 自动任务状态\n/sessions - 活跃会话\n/reload - 重载配置\n/help - 显示帮助\n\n直接对话即可管理记忆、任务、提醒等 — Claude 会自动处理。",
@@ -60,6 +69,15 @@ const messages: Record<string, Record<string, string>> = {
     session_limit: "会话数已达上限，已关闭最旧的空闲会话。",
     unsupported_media: "抱歉，目前只能处理文字、文档和图片。暂不支持语音消息、视频、贴纸和动画。",
     queue_full: "任务队列已满（{count}/{max}）。请等待现有任务完成或取消部分任务。",
+    // Provider streaming labels
+    p_thinking: "💭 思考中",
+    p_read: "📖 读取",
+    p_edit: "✏️ 编辑",
+    p_write: "📝 写入",
+    p_search: "🔍 搜索",
+    p_tool: "🔧 工具",
+    p_warn: "⚠ 警告",
+    p_cmd: "$ ",
   },
 };
 

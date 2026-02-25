@@ -47,28 +47,29 @@ export class GeminiProvider implements Provider {
         const p = msg.parameters || {};
         switch (msg.tool_name) {
           case "shell": case "run_shell_command":
-            return { type: "text_chunk", text: `\`$ ${(p.command || "").slice(0, 200)}\`` };
+            return { type: "text_chunk", text: `\`{{p_cmd}}${(p.command || "").slice(0, 200)}\`` };
           case "read_file":
-            return { type: "text_chunk", text: `> 📖 \`${p.file_path || ""}\`` };
+            return { type: "text_chunk", text: `> {{p_read}} \`${p.file_path || ""}\`` };
           case "edit_file": case "write_file":
-            return { type: "text_chunk", text: `> ✏️ \`${p.file_path || ""}\`` };
+            return { type: "text_chunk", text: `> {{p_edit}} \`${p.file_path || ""}\`` };
           case "find_files": case "glob":
-            return { type: "text_chunk", text: `> 🔍 \`${p.pattern || p.file_path || ""}\`` };
+            return { type: "text_chunk", text: `> {{p_search}} \`${p.pattern || p.file_path || ""}\`` };
           case "grep": case "search_files":
-            return { type: "text_chunk", text: `> 🔍 grep \`${p.pattern || p.query || ""}\`` };
+            return { type: "text_chunk", text: `> {{p_search}} grep \`${p.pattern || p.query || ""}\`` };
           default:
-            return { type: "text_chunk", text: `> 🔧 ${msg.tool_name}` };
+            return { type: "text_chunk", text: `> {{p_tool}} ${msg.tool_name}` };
         }
       }
 
       // Tool result: {"type":"tool_result","status":"...","output":"..."}
       if (msg.type === "tool_result" && msg.output) {
-        return { type: "text_chunk", text: `\`\`\`\n${String(msg.output).slice(0, 500)}\n\`\`\`` };
+        const safe = String(msg.output).slice(0, 500).replace(/```/g, "\\`\\`\\`");
+        return { type: "text_chunk", text: `\`\`\`\n${safe}\n\`\`\`` };
       }
 
       // Error event
       if (msg.type === "error" && msg.message) {
-        return { type: "text_chunk", text: `⚠ ${msg.message}` };
+        return { type: "text_chunk", text: `{{p_warn}} ${msg.message}` };
       }
 
       // Result: {"type":"result","status":"...","stats":{...}}
