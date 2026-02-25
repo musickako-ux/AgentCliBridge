@@ -36,7 +36,7 @@ export class ClaudeProvider implements Provider {
             const inp = b.input || {};
             switch (b.name) {
               case "Bash":
-                parts.push(`\`{{p_cmd}}${(inp.command || "").slice(0, 200)}\``);
+                parts.push(`\`\`\`\n{{p_cmd}}${(inp.command || "").slice(0, 200)}\n\`\`\``);
                 break;
               case "Read":
                 parts.push(`> {{p_read}} \`${inp.file_path || ""}\``);

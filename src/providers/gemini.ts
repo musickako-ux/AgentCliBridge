@@ -47,7 +47,7 @@ export class GeminiProvider implements Provider {
         const p = msg.parameters || {};
         switch (msg.tool_name) {
           case "shell": case "run_shell_command":
-            return { type: "text_chunk", text: `\`{{p_cmd}}${(p.command || "").slice(0, 200)}\`` };
+            return { type: "text_chunk", text: `\`\`\`\n{{p_cmd}}${(p.command || "").slice(0, 200)}\n\`\`\`` };
           case "read_file":
             return { type: "text_chunk", text: `> {{p_read}} \`${p.file_path || ""}\`` };
           case "edit_file": case "write_file":
