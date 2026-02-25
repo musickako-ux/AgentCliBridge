@@ -29,10 +29,44 @@ export class ClaudeProvider implements Provider {
         return { type: "session_init", sessionId: msg.session_id };
       }
       if (msg.type === "assistant" && msg.message?.content) {
-        const texts = msg.message.content
-          .filter((b: any) => b.type === "text" && b.text)
-          .map((b: any) => b.text);
-        if (texts.length) return { type: "text_chunk", text: texts.join("") };
+        const parts: string[] = [];
+        for (const b of msg.message.content) {
+          if (b.type === "text" && b.text) parts.push(b.text);
+          if (b.type === "tool_use" && b.name) {
+            const inp = b.input || {};
+            switch (b.name) {
+              case "Bash":
+                parts.push(`$ ${(inp.command || "").slice(0, 200)}`);
+                break;
+              case "Read":
+                parts.push(`📖 ${inp.file_path || ""}`);
+                break;
+              case "Edit":
+                parts.push(`✏️ ${inp.file_path || ""}`);
+                break;
+              case "Write":
+                parts.push(`📝 ${inp.file_path || ""}`);
+                break;
+              case "Glob":
+                parts.push(`🔍 ${inp.pattern || ""}`);
+                break;
+              case "Grep":
+                parts.push(`🔍 grep ${inp.pattern || ""}`);
+                break;
+              default:
+                parts.push(`🔧 ${b.name}`);
+            }
+          }
+        }
+        if (parts.length) return { type: "text_chunk", text: parts.join("\n") };
+      }
+      if (msg.type === "user" && msg.message?.content) {
+        for (const b of msg.message.content) {
+          if (b.type === "tool_result" && typeof b.content === "string" && b.content.length > 0) {
+            const out = b.content.slice(0, 500);
+            return { type: "text_chunk", text: `\`\`\`\n${out}\n\`\`\`` };
+          }
+        }
       }
       if (msg.type === "result") {
         return {
