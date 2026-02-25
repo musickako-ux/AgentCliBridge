@@ -40,32 +40,33 @@ export class CodexProvider implements Provider {
             if (item.text) return { type: "text_chunk", text: item.text };
             break;
           case "reasoning":
-            if (item.text) return { type: "text_chunk", text: `💭 ${item.text}` };
+            if (item.text) return { type: "text_chunk", text: `> 💭 ${item.text}` };
             break;
           case "command_execution":
             if (item.command) {
               const cmd = item.command.replace(/^\/bin\/bash -lc ['"]?/, "").replace(/['"]?$/, "").slice(0, 200);
-              const exit = item.exit_code != null ? ` → exit ${item.exit_code}` : "";
-              const out = item.aggregated_output ? `\n\`\`\`\n${item.aggregated_output.slice(0, 500)}\n\`\`\`` : "";
-              return { type: "text_chunk", text: `$ ${cmd}${exit}${out}` };
+              const exit = item.exit_code != null ? ` (exit ${item.exit_code})` : "";
+              let text = `\`$ ${cmd}\`${exit}`;
+              if (item.aggregated_output) text += `\n\`\`\`\n${item.aggregated_output.slice(0, 500)}\n\`\`\``;
+              return { type: "text_chunk", text };
             }
             break;
           case "file_change":
             if (item.changes?.length) {
-              const files = item.changes.map((c: any) => `${c.kind === "add" ? "+" : "~"} ${c.path}`).join("\n");
-              return { type: "text_chunk", text: `📝\n${files}` };
+              const files = item.changes.map((c: any) => `\`${c.kind === "add" ? "+" : "~"} ${c.path}\``).join("\n");
+              return { type: "text_chunk", text: files };
             }
             break;
           case "todo_list":
             if (item.items?.length) {
-              const list = item.items.map((t: any) => `${t.completed ? "✅" : "⬜"} ${t.text}`).join("\n");
+              const list = item.items.map((t: any) => `${t.completed ? "☑" : "☐"} ${t.text}`).join("\n");
               return { type: "text_chunk", text: list };
             }
             break;
         }
       }
       if (msg.type === "item.updated" && msg.item?.type === "todo_list" && msg.item.items?.length) {
-        const list = msg.item.items.map((t: any) => `${t.completed ? "✅" : "⬜"} ${t.text}`).join("\n");
+        const list = msg.item.items.map((t: any) => `${t.completed ? "☑" : "☐"} ${t.text}`).join("\n");
         return { type: "text_chunk", text: list };
       }
       if (msg.type === "turn.completed") {

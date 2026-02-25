@@ -1,7 +1,7 @@
 import { Client, GatewayIntentBits, Message } from "discord.js";
 import { writeFileSync, existsSync } from "fs";
 import { join } from "path";
-import { AdapterBase, chunkText } from "./base.js";
+import { AdapterBase, chunkText, closeCodeFences } from "./base.js";
 import { AgentEngine } from "../core/agent.js";
 import { Store } from "../core/store.js";
 import { reloadConfig, DiscordConfig } from "../core/config.js";
@@ -225,6 +225,7 @@ export class DiscordAdapter extends AdapterBase {
         const placeholder = await msg.reply(t(this.locale, "thinking"));
         let lastEdit = 0;
         let lastText = "";
+        let editCount = 0;
 
         try {
           const res = await this.engine.handleUserMessage(
@@ -232,7 +233,10 @@ export class DiscordAdapter extends AdapterBase {
             async (_chunk: string, full: string) => {
               const now = Date.now();
               if (now - lastEdit < EDIT_INTERVAL) return;
-              const preview = full.slice(-1900) + "\n\n...";
+              editCount++;
+              const dots = ".".repeat((editCount % 3) + 1);
+              const raw = full.length > 1900 ? full.slice(-1900) : full;
+              const preview = closeCodeFences(raw) + "\n\n" + dots;
               if (preview === lastText) return;
               lastText = preview;
               lastEdit = now;
@@ -266,6 +270,7 @@ export class DiscordAdapter extends AdapterBase {
       const placeholder = await msg.reply(t(this.locale, "thinking"));
       let lastEdit = 0;
       let lastText = "";
+      let editCount = 0;
 
       try {
         const res = await this.engine.runStream(
@@ -273,7 +278,10 @@ export class DiscordAdapter extends AdapterBase {
           async (_chunk: string, full: string) => {
             const now = Date.now();
             if (now - lastEdit < EDIT_INTERVAL) return;
-            const preview = full.slice(-1900) + "\n\n...";
+            editCount++;
+            const dots = ".".repeat((editCount % 3) + 1);
+            const raw = full.length > 1900 ? full.slice(-1900) : full;
+            const preview = closeCodeFences(raw) + "\n\n" + dots;
             if (preview === lastText) return;
             lastText = preview;
             lastEdit = now;

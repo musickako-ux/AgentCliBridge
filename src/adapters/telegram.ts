@@ -1,4 +1,4 @@
-import { AdapterBase, chunkText } from "./base.js";
+import { AdapterBase, chunkText, closeCodeFences } from "./base.js";
 import { existsSync, readFileSync } from "fs";
 import { basename, extname } from "path";
 import { AgentEngine } from "../core/agent.js";
@@ -367,7 +367,8 @@ export class TelegramAdapter extends AdapterBase {
               lastEdit = now;
               editCount++;
               const dots = ".".repeat((editCount % 3) + 1);
-              const preview = full.length > 3500 ? full.slice(-3500) + "\n\n..." : full + "\n\n" + dots;
+              const raw = full.length > 3500 ? full.slice(-3500) : full;
+              const preview = closeCodeFences(raw) + "\n\n" + dots;
               await this.editMsg(chatId, msgId, preview);
             }
           );
@@ -409,7 +410,8 @@ export class TelegramAdapter extends AdapterBase {
             lastEdit = now;
             editCount++;
             const dots = ".".repeat((editCount % 3) + 1);
-            const preview = full.length > 3500 ? full.slice(-3500) + "\n\n..." : full + "\n\n" + dots;
+            const raw = full.length > 3500 ? full.slice(-3500) : full;
+            const preview = closeCodeFences(raw) + "\n\n" + dots;
             await this.editMsg(chatId, msgId, preview);
           }
         );

@@ -45,10 +45,13 @@ function processInline(text: string): string {
   // 6. Restore strikethrough ~~text~~ → ~text~
   s = s.replace(/\\~\\~(.+?)\\~\\~/g, "~$1~");
 
-  // 7. Restore link placeholders
+  // 7. Restore blockquote > at line start
+  s = s.replace(/(^|\n)\\> /g, "$1>");
+
+  // 8. Restore link placeholders
   s = s.replace(/\x00LK(\d+)\x00/g, (_, i) => links[Number(i)]);
 
-  // 8. Restore inline code placeholders
+  // 9. Restore inline code placeholders
   s = s.replace(/\x00IC(\d+)\x00/g, (_, i) => inlineCodes[Number(i)]);
 
   return s;

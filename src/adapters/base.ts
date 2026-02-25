@@ -11,6 +11,12 @@ export interface Adapter {
   reloadConfig?(config: any, locale: string): void;
 }
 
+/** Close any unclosed code fences in truncated text */
+export function closeCodeFences(text: string): string {
+  const count = (text.match(/```/g) || []).length;
+  return count % 2 === 1 ? text + "\n```" : text;
+}
+
 /** Split long text into chunks respecting newlines, with code-block-aware balancing */
 export function chunkText(text: string, maxLen: number): string[] {
   if (text.length <= maxLen) return [text];
