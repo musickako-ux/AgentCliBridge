@@ -19,9 +19,9 @@ export function generateSkillDoc(ctx: SkillContext): string {
 
   if (ctx.locale === "zh") {
     return [
-      `## ClaudeBridge 内置能力`,
+      `## AgentCliBridge 内置能力`,
       ``,
-      `你正在 ClaudeBridge 中运行，连接着 ${ctx.platform} 平台。`,
+      `你正在 AgentCliBridge 中运行，连接着 ${ctx.platform} 平台。`,
       `当前用户 ID: ${ctx.userId} | 聊天 ID: ${ctx.chatId} | 平台: ${ctx.platform}`,
       ...(ctx.subSessionId ? [`当前子会话: ${ctx.subSessionId.slice(0, 8)} (话题: "${ctx.subSessionLabel || ""}")`] : []),
       ``,
@@ -137,9 +137,9 @@ export function generateSkillDoc(ctx: SkillContext): string {
   }
 
   return [
-    `## ClaudeBridge Built-in Skills`,
+    `## AgentCliBridge Built-in Skills`,
     ``,
-    `You are running inside ClaudeBridge, connected to the ${ctx.platform} platform.`,
+    `You are running inside AgentCliBridge, connected to the ${ctx.platform} platform.`,
     `Current user ID: ${ctx.userId} | Chat ID: ${ctx.chatId} | Platform: ${ctx.platform}`,
     ...(ctx.subSessionId ? [`Current sub-session: ${ctx.subSessionId.slice(0, 8)} (topic: "${ctx.subSessionLabel || ""}")`] : []),
     ``,

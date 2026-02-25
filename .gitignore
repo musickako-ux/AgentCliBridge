@@ -7,3 +7,6 @@ config.yaml
 workspaces/
 test-bot.ts
 test-intent.ts
+codex_stderr.txt
+codex_stdout.txt
+nul

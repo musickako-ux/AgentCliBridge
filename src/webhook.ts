@@ -16,6 +16,8 @@ export class WebhookServer {
     private cronEntries: CronEntry[] = []
   ) {}
 
+  private startTime = Date.now();
+
   start(): void {
     this.server = createServer((req, res) => this.handleRequest(req, res));
     this.server.listen(this.config.port, () => {
@@ -49,7 +51,25 @@ export class WebhookServer {
 
     // GET /health
     if (req.method === "GET" && url.pathname === "/health") {
-      this.json(res, 200, { ok: true, timestamp: new Date().toISOString() });
+      const uptimeMs = Date.now() - this.startTime;
+      const uptimeHours = (uptimeMs / 3600000).toFixed(2);
+      let dbWritable = true;
+      try {
+        this.store.recordUsage("_healthcheck", "system", 0);
+      } catch {
+        dbWritable = false;
+      }
+      const taskStats = this.store.getAutoTaskStats();
+      const statsMap: Record<string, number> = {};
+      for (const s of taskStats) statsMap[s.status] = s.count;
+      this.json(res, 200, {
+        ok: true,
+        timestamp: new Date().toISOString(),
+        uptime_hours: Number(uptimeHours),
+        uptime_ms: uptimeMs,
+        db_writable: dbWritable,
+        task_stats: statsMap,
+      });
       return;
     }
 
@@ -121,7 +141,11 @@ export class WebhookServer {
     if (!this.config.token) return false;
     const auth = req.headers.authorization || "";
     const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-    return token === this.config.token;
+    if (!token) return false;
+    const a = Buffer.from(token);
+    const b = Buffer.from(this.config.token);
+    if (a.length !== b.length) return false;
+    return timingSafeEqual(a, b);
   }
 
   private verifyGitHubSignature(body: string, signature: string): boolean {

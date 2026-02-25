@@ -4,14 +4,18 @@ export class CodexProvider implements Provider {
   readonly binary = "codex";
   readonly supportsSessionResume = false;
   readonly supportsAppendSystemPrompt = false;
+  readonly promptViaStdin = true;
 
   buildArgs(opts: ProviderExecOpts): string[] {
-    const prompt = opts.appendSystemPrompt
-      ? `[System Context]\n${opts.appendSystemPrompt}\n\n[User Message]\n${opts.prompt}`
-      : opts.prompt;
-    const args = ["exec", prompt, "--json", "--dangerously-bypass-approvals-and-sandbox"];
+    const args = ["exec", "-", "--json", "--dangerously-bypass-approvals-and-sandbox"];
     if (opts.model) args.push("-m", opts.model);
     return args;
+  }
+
+  getStdinPrompt(opts: ProviderExecOpts): string {
+    return opts.appendSystemPrompt
+      ? `[System Context]\n${opts.appendSystemPrompt}\n\n[User Message]\n${opts.prompt}`
+      : opts.prompt;
   }
 
   buildEnv(extra: Record<string, string>): Record<string, string> {

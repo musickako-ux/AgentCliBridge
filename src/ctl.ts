@@ -2,9 +2,9 @@
 
 import Database from "better-sqlite3";
 
-const DB_PATH = process.env.CLAUDEBRIDGE_DB;
+const DB_PATH = process.env.AGENT_CLI_BRIDGE_DB;
 if (!DB_PATH) {
-  console.error("Error: CLAUDEBRIDGE_DB environment variable is required");
+  console.error("Error: AGENT_CLI_BRIDGE_DB environment variable is required");
   process.exit(1);
 }
 
@@ -105,6 +105,10 @@ if (category === "memory") {
     const delayRaw = extractFlag(descParts, "--delay");
     const scheduledAt = delayRaw ? Date.now() + parseInt(delayRaw) * 60000 : null;
     const desc = descParts.join(" ");
+    // Queue depth check (default max: 50)
+    const MAX_QUEUE_DEPTH = 50;
+    const pending = db.prepare("SELECT COUNT(*) as c FROM tasks WHERE user_id = ? AND status IN ('auto','running')").get(userId) as { c: number };
+    if (pending.c >= MAX_QUEUE_DEPTH) fail(`Queue full: ${pending.c}/${MAX_QUEUE_DEPTH} auto tasks pending/running. Cancel or wait for tasks to complete.`);
     const r = db.prepare("INSERT INTO tasks (user_id, platform, chat_id, description, status, parent_id, scheduled_at, created_at) VALUES (?, ?, ?, ?, 'auto', ?, ?, ?)").run(userId, platform, chatId, desc, parentId, scheduledAt, Date.now());
     output({ ok: true, id: Number(r.lastInsertRowid), scheduled_at: scheduledAt, message: scheduledAt ? `Auto task scheduled (in ${Math.ceil((scheduledAt - Date.now()) / 60000)} min)` : "Auto task queued" });
   } else if (action === "add-approval") {
@@ -145,9 +149,14 @@ if (category === "memory") {
   if (action === "send") {
     const [userId, platform, chatId, filePath, ...captionParts] = rest;
     if (!userId || !platform || !chatId || !filePath) fail("Usage: file send <user_id> <platform> <chat_id> <file_path> [caption...]");
-    const { resolve } = await import("path");
+    const { resolve, dirname, join, normalize } = await import("path");
     const { existsSync } = await import("fs");
     const resolved = resolve(filePath);
+    // Security: restrict file sends to workspace directory
+    const workspaceRoot = resolve(join(dirname(DB_PATH), "..", "workspaces", userId));
+    const normalizedResolved = normalize(resolved);
+    const normalizedRoot = normalize(workspaceRoot);
+    if (!normalizedResolved.startsWith(normalizedRoot)) fail(`Access denied: file must be within workspace directory ${normalizedRoot}`);
     if (!existsSync(resolved)) fail(`File not found: ${resolved}`);
     const caption = captionParts.join(" ");
     const r = db.prepare("INSERT INTO file_sends (user_id, platform, chat_id, file_path, caption, status, created_at) VALUES (?, ?, ?, ?, ?, 'pending', ?)").run(userId, platform, chatId, resolved, caption, Date.now());
@@ -165,7 +174,7 @@ if (category === "memory") {
     fail("Usage: session <list> ...");
   }
 } else {
-  fail("Usage: claudebridge-ctl <memory|task|reminder|auto|file|session> <action> [args...]");
+  fail("Usage: agent-cli-bridge-ctl <memory|task|reminder|auto|file|session> <action> [args...]");
 }
 
 db.close();

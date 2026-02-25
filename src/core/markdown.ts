@@ -1,5 +1,5 @@
 /** Escape text for Telegram MarkdownV2 */
-export function escapeMarkdownV2(text: string): string {
+function escapeMarkdownV2(text: string): string {
   // Characters that must be escaped outside code blocks
   return text.replace(/([_*\[\]()~`>#+\-=|{}.!\\])/g, "\\$1");
 }

@@ -1,12 +1,12 @@
-import { Adapter, chunkText } from "./base.js";
-import { existsSync, createReadStream } from "fs";
+import { AdapterBase, chunkText } from "./base.js";
+import { existsSync, readFileSync } from "fs";
 import { basename, extname } from "path";
 import { AgentEngine } from "../core/agent.js";
 import { Store } from "../core/store.js";
 import { reloadConfig, TelegramConfig } from "../core/config.js";
 import { toTelegramMarkdown } from "../core/markdown.js";
 import { t, getCommandDescriptions } from "../core/i18n.js";
-import { log as rootLog } from "../core/logger.js";
+import { log as rootLog, shortId } from "../core/logger.js";
 
 const log = rootLog.child("telegram");
 
@@ -18,24 +18,25 @@ interface TgUpdate {
   callback_query?: any;
 }
 
-export class TelegramAdapter implements Adapter {
+export class TelegramAdapter extends AdapterBase {
   private running = false;
   private offset = 0;
-  private reminderTimer?: ReturnType<typeof setInterval>;
-  private autoTimer?: ReturnType<typeof setInterval>;
-  private approvalTimer?: ReturnType<typeof setInterval>;
-  private fileSendTimer?: ReturnType<typeof setInterval>;
-  private activeAutoTasks = 0;
-  private maxParallel = 1;
+  private config: TelegramConfig;
   private pages = new Map<string, { chunks: string[]; raw: string[]; ts: number }>();
   private static PAGE_TTL = 30 * 60 * 1000; // 30 minutes
 
   constructor(
-    private engine: AgentEngine,
-    private store: Store,
-    private config: TelegramConfig,
-    private locale: string = "en"
-  ) {}
+    engine: AgentEngine,
+    store: Store,
+    config: TelegramConfig,
+    locale: string = "en"
+  ) {
+    super(engine, store, locale);
+    this.config = config;
+  }
+
+  get platformName(): string { return "telegram"; }
+  get chunkSize(): number { return this.config.chunk_size || 4000; }
 
   reloadConfig(config: TelegramConfig, locale: string): void {
     this.config = config;
@@ -95,6 +96,61 @@ export class TelegramAdapter implements Adapter {
       if (parseMode) log.warn("editMsg failed", { parseMode, error: e?.message?.slice(0, 200) });
     }
   }
+
+  // ─── AdapterBase abstract implementations ───────────────────
+
+  async sendText(chatId: string, text: string): Promise<string | void> {
+    const msg = await this.reply(Number(chatId), text);
+    return msg?.message_id ? String(msg.message_id) : undefined;
+  }
+
+  async sendFile(chatId: string, filePath: string, caption: string): Promise<boolean> {
+    const ext = extname(filePath).toLowerCase();
+    const isPhoto = [".jpg", ".jpeg", ".png", ".gif"].includes(ext);
+    const method = isPhoto ? "sendPhoto" : "sendDocument";
+    const fieldName = isPhoto ? "photo" : "document";
+    const form = new FormData();
+    form.append("chat_id", chatId);
+    const blob = new Blob([readFileSync(filePath)]);
+    form.append(fieldName, blob, basename(filePath));
+    if (caption) form.append("caption", caption);
+    const res = await fetch(`${this.api}/${method}`, { method: "POST", body: form });
+    const json = await res.json() as any;
+    if (!json.ok) {
+      log.error("file send API error", { desc: json.description });
+      return false;
+    }
+    return true;
+  }
+
+  async sendFormattedResult(chatId: string, text: string): Promise<void> {
+    const maxLen = this.chunkSize;
+    const mdChunks = chunkText(toTelegramMarkdown(text), maxLen);
+    const rawChunks = chunkText(text, maxLen);
+    for (let i = 0; i < mdChunks.length; i++) {
+      try {
+        await this.call("sendMessage", { chat_id: Number(chatId), text: mdChunks[i], parse_mode: "MarkdownV2" });
+      } catch {
+        await this.reply(Number(chatId), rawChunks[i] || mdChunks[i]);
+      }
+    }
+  }
+
+  async sendApprovalRequest(chatId: string, taskId: number, description: string): Promise<void> {
+    const keyboard = {
+      inline_keyboard: [[
+        { text: "Approve", callback_data: `approve:${taskId}` },
+        { text: "Reject", callback_data: `reject:${taskId}` },
+      ]],
+    };
+    await this.call("sendMessage", {
+      chat_id: Number(chatId),
+      text: t(this.locale, "approval_request", { id: taskId, desc: description }),
+      reply_markup: keyboard,
+    });
+  }
+
+  // ─── Telegram-specific logic ────────────────────────────────
 
   private async handleUpdate(update: TgUpdate) {
     if (update.callback_query) {
@@ -168,11 +224,17 @@ export class TelegramAdapter implements Adapter {
       return;
     }
     if (text === "/status") {
-      await this.handleStatusCommand(chatId, String(uid));
+      await this.handleStatusCommand(String(chatId), String(uid));
       return;
     }
     if (text === "/sessions") {
-      await this.handleSessionsCommand(chatId, String(uid));
+      await this.handleSessionsCommand(String(chatId), String(uid));
+      return;
+    }
+
+    // Unsupported media types
+    if (msg.voice || msg.video_note || msg.sticker || msg.animation || msg.video) {
+      await this.reply(chatId, t(this.locale, "unsupported_media"));
       return;
     }
 
@@ -187,6 +249,10 @@ export class TelegramAdapter implements Adapter {
         const url = `https://api.telegram.org/file/bot${this.config.token}/${file.file_path}`;
         const resp = await fetch(url);
         const buf = Buffer.from(await resp.arrayBuffer());
+        if (buf.length > 25 * 1024 * 1024) {
+          await this.reply(chatId, t(this.locale, "upload_failed") + "File too large (max 25MB)");
+          return;
+        }
         const { writeFileSync } = await import("fs");
         const { join } = await import("path");
         const ws = this.engine.getWorkDir(String(uid));
@@ -274,15 +340,64 @@ export class TelegramAdapter implements Adapter {
   }
 
   private async handlePrompt(chatId: number, uid: string, text: string, replyToMsgId?: string) {
-    // Multi-session mode: route and execute concurrently (no global lock check)
-    if (this.engine.isMultiSessionEnabled()) {
+    const rid = shortId();
+    const reqLog = log.withContext({ rid });
+    const endTimer = log.time("telegram.handlePrompt");
+    // Send typing indicator
+    this.call("sendChatAction", { chat_id: chatId, action: "typing" }).catch(() => {});
+    const typingInterval = setInterval(() => {
+      this.call("sendChatAction", { chat_id: chatId, action: "typing" }).catch(() => {});
+    }, 5000);
+
+    try {
+      // Multi-session mode: route and execute concurrently (no global lock check)
+      if (this.engine.isMultiSessionEnabled()) {
+        const placeholder = await this.reply(chatId, t(this.locale, "thinking"));
+        const msgId = placeholder.message_id;
+        let lastEdit = 0;
+
+        try {
+          reqLog.info("running claude (multi-session)", { uid });
+          const res = await this.engine.handleUserMessage(uid, text, "telegram", String(chatId), replyToMsgId,
+            async (_chunk: string, full: string) => {
+              const now = Date.now();
+              if (now - lastEdit < EDIT_INTERVAL) return;
+              lastEdit = now;
+              const preview = full.slice(-3500) + "\n\n...";
+              await this.editMsg(chatId, msgId, preview);
+            }
+          );
+          reqLog.info("claude done", { uid, session: res.subSessionId?.slice(0, 8), cost: res.cost?.toFixed(4) });
+
+          // Track response message → sub-session mapping for future reply-to routing
+          if (res.subSessionId) {
+            this.engine.getSessionManager().trackMessage(String(msgId), String(chatId), res.subSessionId);
+          }
+
+          // Check if user has multiple active sessions — add label prefix
+          const activeSessions = this.engine.getSessionManager().getActive(uid, "telegram");
+          const labelPrefix = activeSessions.length > 1 && res.label ? `[${res.label.slice(0, 30)}]\n` : "";
+
+          await this.sendFormattedResponse(chatId, msgId, res.text, labelPrefix);
+        } catch (err: any) {
+          reqLog.error("claude error", { error: err?.message });
+          await this.editMsg(chatId, msgId, `Error: ${err.message || "unknown"}`);
+        }
+        return;
+      }
+
+      // Legacy single-session mode (session.enabled: false)
+      if (this.engine.isLocked(uid)) {
+        await this.reply(chatId, t(this.locale, "still_processing"));
+        return;
+      }
       const placeholder = await this.reply(chatId, t(this.locale, "thinking"));
       const msgId = placeholder.message_id;
       let lastEdit = 0;
 
       try {
-        log.info("running claude (multi-session)", { uid });
-        const res = await this.engine.handleUserMessage(uid, text, "telegram", String(chatId), replyToMsgId,
+        reqLog.info("running claude", { uid });
+        const res = await this.engine.runStream(uid, text, "telegram", String(chatId),
           async (_chunk: string, full: string) => {
             const now = Date.now();
             if (now - lastEdit < EDIT_INTERVAL) return;
@@ -291,57 +406,22 @@ export class TelegramAdapter implements Adapter {
             await this.editMsg(chatId, msgId, preview);
           }
         );
-        log.info("claude done", { uid, session: res.subSessionId?.slice(0, 8), cost: res.cost?.toFixed(4) });
+        reqLog.info("claude done", { uid, cost: res.cost?.toFixed(4) });
 
-        // Track response message → sub-session mapping for future reply-to routing
-        if (res.subSessionId) {
-          this.engine.getSessionManager().trackMessage(String(msgId), String(chatId), res.subSessionId);
-        }
-
-        // Check if user has multiple active sessions — add label prefix
-        const activeSessions = this.engine.getSessionManager().getActive(uid, "telegram");
-        const labelPrefix = activeSessions.length > 1 && res.label ? `[${res.label.slice(0, 30)}]\n` : "";
-
-        await this.sendFormattedResponse(chatId, msgId, res.text, labelPrefix);
+        await this.sendFormattedResponse(chatId, msgId, res.text);
       } catch (err: any) {
-        log.error("claude error", { error: err?.message });
+        reqLog.error("claude error", { error: err?.message });
         await this.editMsg(chatId, msgId, `Error: ${err.message || "unknown"}`);
       }
-      return;
-    }
-
-    // Legacy single-session mode (session.enabled: false)
-    if (this.engine.isLocked(uid)) {
-      await this.reply(chatId, t(this.locale, "still_processing"));
-      return;
-    }
-    const placeholder = await this.reply(chatId, t(this.locale, "thinking"));
-    const msgId = placeholder.message_id;
-    let lastEdit = 0;
-
-    try {
-      log.info("running claude", { uid });
-      const res = await this.engine.runStream(uid, text, "telegram", String(chatId),
-        async (_chunk: string, full: string) => {
-          const now = Date.now();
-          if (now - lastEdit < EDIT_INTERVAL) return;
-          lastEdit = now;
-          const preview = full.slice(-3500) + "\n\n...";
-          await this.editMsg(chatId, msgId, preview);
-        }
-      );
-      log.info("claude done", { uid, cost: res.cost?.toFixed(4) });
-
-      await this.sendFormattedResponse(chatId, msgId, res.text);
-    } catch (err: any) {
-      log.error("claude error", { error: err?.message });
-      await this.editMsg(chatId, msgId, `Error: ${err.message || "unknown"}`);
+    } finally {
+      clearInterval(typingInterval);
+      endTimer();
     }
   }
 
   /** Format and send a response with MarkdownV2 + pagination support */
   private async sendFormattedResponse(chatId: number, msgId: number, text: string, labelPrefix: string = ""): Promise<void> {
-    const maxLen = this.config.chunk_size || 4000;
+    const maxLen = this.chunkSize;
     const fullText = labelPrefix + text;
     const md = toTelegramMarkdown(fullText);
     const mdChunks = chunkText(md, maxLen);
@@ -389,12 +469,8 @@ export class TelegramAdapter implements Adapter {
 
   async start(): Promise<void> {
     this.running = true;
-    this.maxParallel = this.engine.getMaxParallel();
+    this.startTimers();
     log.info("starting long polling...", { maxParallel: this.maxParallel, multiSession: this.engine.isMultiSessionEnabled() });
-    this.reminderTimer = setInterval(() => this.checkReminders(), 30000);
-    this.autoTimer = setInterval(() => this.processAutoTasks(), 5000);
-    this.approvalTimer = setInterval(() => this.checkApprovals(), 15000);
-    this.fileSendTimer = setInterval(() => this.checkFileSends(), 5000);
     await this.registerCommands();
     let pollBackoff = 0;
     while (this.running) {
@@ -421,10 +497,7 @@ export class TelegramAdapter implements Adapter {
 
   stop(): void {
     this.running = false;
-    if (this.reminderTimer) clearInterval(this.reminderTimer);
-    if (this.autoTimer) clearInterval(this.autoTimer);
-    if (this.approvalTimer) clearInterval(this.approvalTimer);
-    if (this.fileSendTimer) clearInterval(this.fileSendTimer);
+    this.stopTimers();
   }
 
   private async registerCommands(): Promise<void> {
@@ -432,106 +505,6 @@ export class TelegramAdapter implements Adapter {
       await this.call("setMyCommands", { commands: getCommandDescriptions(this.locale) });
       log.info("commands registered");
     } catch (e: any) { log.error("failed to register commands", { error: e?.message }); }
-  }
-
-  private async checkReminders(): Promise<void> {
-    try {
-      const due = this.store.getDueReminders().filter(r => r.platform === "telegram");
-      for (const r of due) {
-        await this.reply(Number(r.chat_id), t(this.locale, "reminder_notify", { desc: r.description }));
-        this.store.markReminderSent(r.id);
-      }
-    } catch (e: any) { log.error("reminder error", { error: e?.message }); }
-  }
-
-  private async processAutoTasks(): Promise<void> {
-    const available = this.maxParallel - this.activeAutoTasks;
-    if (available <= 0) return;
-    const tasks = this.store.getNextAutoTasks("telegram", available);
-    for (const task of tasks) {
-      this.activeAutoTasks++;
-      this.store.markTaskRunning(task.id);
-      this.runAutoTask(task).finally(() => { this.activeAutoTasks--; this.processAutoTasks(); });
-    }
-  }
-
-  private async runAutoTask(task: { id: number; user_id: string; platform: string; chat_id: string; description: string; parent_id: number | null }): Promise<void> {
-    const chatId = Number(task.chat_id);
-    await this.reply(chatId, t(this.locale, "auto_starting", { id: task.id, desc: task.description }));
-    try {
-      log.info("auto-task starting", { taskId: task.id, userId: task.user_id });
-      // Always use runParallel for auto-tasks: fresh session, no user session pollution
-      const res = await this.engine.runParallel(task.user_id, task.description, "telegram", task.chat_id, undefined, 0);
-      if (res.timedOut) {
-        this.store.markTaskResult(task.id, "failed");
-        if (res.text) this.store.setTaskResult(task.id, res.text.slice(0, 10000));
-        await this.reply(chatId, t(this.locale, "auto_failed", { id: task.id, err: "timed out" }));
-        // Self-healing: auto-retry timed out tasks
-        const retryMatch = task.description.match(/\[retry (\d+)\/3\]/);
-        const retryCount = retryMatch ? parseInt(retryMatch[1]) : 0;
-        if (retryCount < 3) {
-          const retryDesc = retryCount === 0
-            ? `[retry 1/3] Previous attempt of task #${task.id} timed out. Continue from where it left off: ${task.description}`
-            : task.description.replace(`[retry ${retryCount}/3]`, `[retry ${retryCount + 1}/3]`);
-          const retryId = this.store.addTask(task.user_id, "telegram", task.chat_id, retryDesc, undefined, true, task.parent_id || task.id, Date.now() + 120000);
-          await this.reply(chatId, t(this.locale, "auto_retry", { id: retryId, attempt: retryCount + 1, parent: task.id }));
-        }
-        return;
-      }
-      this.store.markTaskResult(task.id, "done");
-      if (res.text) this.store.setTaskResult(task.id, res.text.slice(0, 10000));
-      const maxLen = this.config.chunk_size || 4000;
-      const rawChunks = chunkText(res.text || "(no output)", maxLen);
-      const mdChunks = chunkText(toTelegramMarkdown(res.text || "(no output)"), maxLen);
-      await this.reply(chatId, t(this.locale, "auto_done", { id: task.id, cost: (res.cost || 0).toFixed(4) }));
-      for (let i = 0; i < mdChunks.length; i++) {
-        try {
-          await this.call("sendMessage", { chat_id: chatId, text: mdChunks[i], parse_mode: "MarkdownV2" });
-        } catch {
-          await this.reply(chatId, rawChunks[i] || mdChunks[i]);
-        }
-      }
-      // Chain progress reporting
-      if (task.parent_id) {
-        const progress = this.store.getChainProgress(task.parent_id);
-        const costSuffix = res.cost ? ` | Cost: $${res.cost.toFixed(4)}` : "";
-        await this.reply(chatId, t(this.locale, "chain_progress", { id: task.parent_id, done: progress.done, total: progress.total, cost: costSuffix }));
-      }
-    } catch (err: any) {
-      this.store.markTaskResult(task.id, "failed");
-      await this.reply(chatId, t(this.locale, "auto_failed", { id: task.id, err: err.message || "unknown" }));
-      // Self-healing: auto-retry failed tasks (max 3 retries)
-      const retryMatch = task.description.match(/\[retry (\d+)\/3\]/);
-      const retryCount = retryMatch ? parseInt(retryMatch[1]) : 0;
-      if (retryCount < 3) {
-        const retryDesc = retryCount === 0
-          ? `[retry 1/3] Previous attempt of task #${task.id} failed (${(err.message || "unknown").slice(0, 100)}). Analyze the failure, fix the issue, then: ${task.description}`
-          : task.description.replace(`[retry ${retryCount}/3]`, `[retry ${retryCount + 1}/3]`);
-        const retryId = this.store.addTask(task.user_id, "telegram", task.chat_id, retryDesc, undefined, true, task.parent_id || task.id, Date.now() + 120000);
-        await this.reply(chatId, t(this.locale, "auto_retry", { id: retryId, attempt: retryCount + 1, parent: task.id }));
-      }
-    }
-  }
-
-  private async checkApprovals(): Promise<void> {
-    try {
-      const pending = this.store.getPendingApprovals("telegram");
-      for (const task of pending) {
-        const chatId = Number(task.chat_id);
-        const keyboard = {
-          inline_keyboard: [[
-            { text: "Approve", callback_data: `approve:${task.id}` },
-            { text: "Reject", callback_data: `reject:${task.id}` },
-          ]],
-        };
-        await this.call("sendMessage", {
-          chat_id: chatId,
-          text: t(this.locale, "approval_request", { id: task.id, desc: task.description }),
-          reply_markup: keyboard,
-        });
-        this.store.markReminderSent(task.id); // reuse reminder_sent to avoid re-sending
-      }
-    } catch (e: any) { log.error("approval check error", { error: e?.message }); }
   }
 
   private async handleApprovalCallback(cb: any): Promise<void> {
@@ -578,77 +551,5 @@ export class TelegramAdapter implements Adapter {
         await answer(t(this.locale, "approval_decided", { id: taskId }));
       }
     }
-  }
-
-  private async handleStatusCommand(chatId: number, userId: string): Promise<void> {
-    const recent = this.store.getRecentAutoTasks("telegram", 10);
-    if (!recent.length) {
-      await this.reply(chatId, t(this.locale, "no_auto_tasks"));
-      return;
-    }
-    const statusEmoji: Record<string, string> = {
-      auto: "[queue]", running: "[run]", done: "[done]", failed: "[fail]",
-      approval_pending: "[pending]", cancelled: "[cancel]",
-    };
-    const lines = recent.map(task => {
-      const chain = task.parent_id ? ` (chain #${task.parent_id})` : "";
-      let schedInfo = "";
-      if (task.status === "auto" && task.scheduled_at && task.scheduled_at > Date.now()) {
-        const mins = Math.ceil((task.scheduled_at - Date.now()) / 60000);
-        schedInfo = ` [in ${mins}min]`;
-      }
-      return `${statusEmoji[task.status] || "[?]"} #${task.id} [${task.status}]${schedInfo} ${task.description.slice(0, 60)}${chain}`;
-    });
-    const stats = this.store.getAutoTaskStats();
-    const summary = stats.map(s => `${s.status}: ${s.count}`).join(" | ");
-    const report = `${t(this.locale, "status_report")}\n${lines.join("\n")}\n\nSummary: ${summary}`;
-    await this.reply(chatId, report);
-  }
-
-  private async handleSessionsCommand(chatId: number, userId: string): Promise<void> {
-    if (!this.engine.isMultiSessionEnabled()) {
-      await this.reply(chatId, "Multi-session mode is disabled.");
-      return;
-    }
-    const sessions = this.engine.getSessionManager().getActive(userId, "telegram");
-    if (!sessions.length) {
-      await this.reply(chatId, t(this.locale, "no_sessions"));
-      return;
-    }
-    const statusIcon: Record<string, string> = { active: "🟢", idle: "🟡", expired: "🔴", closed: "⚫" };
-    const lines = sessions.map(s => {
-      const ago = Math.round((Date.now() - s.lastActiveAt) / 60000);
-      const locked = this.engine.isSessionLocked(s.id) ? " [processing]" : "";
-      return `${statusIcon[s.status] || "⚪"} ${s.id.slice(0, 8)} "${s.label || "(no topic)"}" (${ago}min ago, ${s.messageCount} msgs, $${s.totalCost.toFixed(4)})${locked}`;
-    });
-    await this.reply(chatId, `${t(this.locale, "sessions_list")}\n${lines.join("\n")}`);
-  }
-
-  private async checkFileSends(): Promise<void> {
-    try {
-      const pending = this.store.getPendingFileSends("telegram");
-      for (const f of pending) {
-        if (!existsSync(f.file_path)) { this.store.markFileFailed(f.id); continue; }
-        const chatId = Number(f.chat_id);
-        const ext = extname(f.file_path).toLowerCase();
-        const isPhoto = [".jpg", ".jpeg", ".png", ".gif"].includes(ext);
-        const method = isPhoto ? "sendPhoto" : "sendDocument";
-        const fieldName = isPhoto ? "photo" : "document";
-        try {
-          const form = new FormData();
-          form.append("chat_id", String(chatId));
-          const blob = new Blob([await import("fs").then(fs => fs.readFileSync(f.file_path))]);
-          form.append(fieldName, blob, basename(f.file_path));
-          if (f.caption) form.append("caption", f.caption);
-          const res = await fetch(`${this.api}/${method}`, { method: "POST", body: form });
-          const json = await res.json() as any;
-          if (json.ok) this.store.markFileSent(f.id);
-          else { log.error("file send API error", { id: f.id, desc: json.description }); this.store.markFileFailed(f.id); }
-        } catch (err: any) {
-          log.error("file send error", { id: f.id, error: err?.message });
-          this.store.markFileFailed(f.id);
-        }
-      }
-    } catch (e: any) { log.error("checkFileSends error", { error: e?.message }); }
   }
 }

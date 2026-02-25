@@ -78,9 +78,26 @@ describe("Store", () => {
     });
     it("add auto task", () => {
       const id = store.addTask("u1", "telegram", "c1", "auto job", undefined, true);
-      const tasks = store.getAutoTasks("u1");
+      const tasks = store.getNextAutoTasks("telegram", 10);
       expect(tasks.length).toBe(1);
       expect(tasks[0].id).toBe(id);
+    });
+    it("queue depth limit", () => {
+      for (let i = 0; i < 3; i++) store.addTask("u1", "telegram", "c1", `task ${i}`, undefined, true, undefined, undefined, 3);
+      expect(() => store.addTask("u1", "telegram", "c1", "overflow", undefined, true, undefined, undefined, 3)).toThrow(/Queue full/);
+    });
+    it("resetStuckTasks recovers old running tasks", async () => {
+      const id = store.addTask("u1", "telegram", "c1", "stuck task", undefined, true);
+      store.markTaskRunning(id);
+      // Wait 15ms so the task's created_at is definitely in the past
+      await new Promise(r => setTimeout(r, 15));
+      // Reset tasks older than 10ms
+      const count = store.resetStuckTasks(10);
+      expect(count).toBe(1);
+      // Task should be back to auto status
+      const tasks = store.getNextAutoTasks("telegram", 10);
+      expect(tasks.length).toBe(1);
+      expect(tasks[0].description).toContain("[recovered]");
     });
   });
 

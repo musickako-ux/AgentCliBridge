@@ -1,9 +1,10 @@
-import { spawn } from "child_process";
+import spawn from "cross-spawn";
 import { SessionManager, SubSession } from "./session.js";
 import { EndpointRotator } from "./keys.js";
 import { SessionConfig } from "./config.js";
 import { Store } from "./store.js";
 import { log as rootLog } from "./logger.js";
+import { getProvider } from "../providers/registry.js";
 
 const log = rootLog.child("dispatcher");
 
@@ -59,13 +60,13 @@ export class Dispatcher {
     return await this._classify(userId, platform, messageText, active);
   }
 
-  /** Classify with user memories + sub-session summaries for context */
   private async _classify(
     userId: string,
     platform: string,
     text: string,
     sessions: SubSession[]
   ): Promise<RouterDecision> {
+    const endTimer = log.time("dispatcher.classify");
     try {
       // Gather context
       const memories = this.store.getMemories(userId);
@@ -116,45 +117,52 @@ No explanation.`;
     } catch (err: any) {
       log.warn("classifier error, creating new session", { error: err.message });
       return { action: "create", label: text.slice(0, 50) };
+    } finally {
+      endTimer();
     }
   }
 
-  /** Spawn claude CLI for single-turn classification */
+  /** Spawn provider CLI for single-turn classification */
   private _callClassifier(prompt: string): Promise<string> {
     return new Promise((resolve, reject) => {
       const budget = (this.config as any).dispatcher_budget ?? (this.config as any).classifier_budget ?? 0.05;
-      const args = ["-p", prompt, "--output-format", "stream-json", "--max-turns", "1"];
-      if (budget) args.push("--max-budget-usd", String(budget));
-      if (this.config.classifier_model) args.push("--model", this.config.classifier_model);
+      const ep = this.rotator.count
+        ? this.rotator.next()
+        : { name: "default", provider: "claude", model: "" };
+      const provider = getProvider(ep.provider || "claude");
 
-      const env: Record<string, string> = { ...process.env as Record<string, string> };
-      if (this.rotator.count) {
-        const ep = this.rotator.next();
-        if (!this.config.classifier_model && ep.model) args.push("--model", ep.model);
+      const execOpts = {
+        prompt,
+        model: this.config.classifier_model || ep.model,
+        maxTurns: 1,
+        maxBudgetUsd: budget || undefined,
+      };
+      const args = provider.buildArgs(execOpts);
+      const env = provider.buildEnv({});
+
+      const child = spawn(provider.binary, args, { env, stdio: ["pipe", "pipe", "pipe"] });
+      if (provider.promptViaStdin && provider.getStdinPrompt) {
+        child.stdin!.write(provider.getStdinPrompt(execOpts));
       }
-
-      const child = spawn("claude", args, { env, stdio: ["pipe", "pipe", "pipe"] });
-      child.stdin.end();
+      child.stdin!.end();
 
       const timer = setTimeout(() => { try { child.kill("SIGTERM"); } catch {} }, 15000);
 
       let result = "";
       let buffer = "";
-      child.stdout.on("data", (data: Buffer) => {
+      child.stdout!.on("data", (data: Buffer) => {
         buffer += data.toString();
         const lines = buffer.split("\n");
         buffer = lines.pop() || "";
         for (const line of lines) {
           if (!line.trim()) continue;
-          try {
-            const msg = JSON.parse(line);
-            if (msg.type === "result" && msg.result) result = msg.result;
-          } catch {}
+          const event = provider.parseLine(line);
+          if (event.type === "result" && event.text) result = event.text;
         }
       });
 
       let stderr = "";
-      child.stderr.on("data", (data: Buffer) => { stderr += data.toString(); });
+      child.stderr!.on("data", (data: Buffer) => { stderr += data.toString(); });
 
       child.on("close", (code) => {
         clearTimeout(timer);
@@ -170,5 +178,4 @@ No explanation.`;
   }
 }
 
-// Backward compatibility alias
-export { Dispatcher as SessionRouter };
+// Legacy alias removed — use Dispatcher directly

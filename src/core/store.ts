@@ -6,7 +6,7 @@ import { log as rootLog } from "./logger.js";
 
 const log = rootLog.child("store");
 
-const DEFAULT_DB_PATH = "./data/claudebridge.db";
+const DEFAULT_DB_PATH = "./data/agent-cli-bridge.db";
 
 export class Store {
   private db: Database.Database;
@@ -18,6 +18,7 @@ export class Store {
     if (p !== ":memory:") mkdirSync(dirname(this.dbPath), { recursive: true });
     this.db = new Database(this.dbPath);
     this.db.pragma("journal_mode = WAL");
+    this.db.pragma("busy_timeout = 5000");
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS sessions (
         user_id TEXT PRIMARY KEY,
@@ -220,7 +221,13 @@ export class Store {
   }
 
   // --- tasks ---
-  addTask(userId: string, platform: string, chatId: string, description: string, remindAt?: number, auto = false, parentId?: number, scheduledAt?: number): number {
+  addTask(userId: string, platform: string, chatId: string, description: string, remindAt?: number, auto = false, parentId?: number, scheduledAt?: number, maxQueueDepth?: number): number {
+    if (auto && maxQueueDepth && maxQueueDepth > 0) {
+      const pending = this.db.prepare("SELECT COUNT(*) as c FROM tasks WHERE user_id = ? AND status IN ('auto','running')").get(userId) as { c: number };
+      if (pending.c >= maxQueueDepth) {
+        throw new Error(`Queue full: ${pending.c}/${maxQueueDepth} auto tasks pending/running`);
+      }
+    }
     const r = this.db.prepare("INSERT INTO tasks (user_id, platform, chat_id, description, status, remind_at, parent_id, scheduled_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)").run(userId, platform, chatId, description, auto ? "auto" : "pending", remindAt ?? null, parentId ?? null, scheduledAt ?? null, Date.now());
     return Number(r.lastInsertRowid);
   }
@@ -239,10 +246,6 @@ export class Store {
 
   markTaskResult(taskId: number, status: string): void {
     this.db.prepare("UPDATE tasks SET status = ? WHERE id = ?").run(status, taskId);
-  }
-
-  getAutoTasks(userId: string): { id: number; description: string; status: string; scheduled_at: number | null; created_at: number }[] {
-    return this.db.prepare("SELECT id, description, status, scheduled_at, created_at FROM tasks WHERE user_id = ? AND status IN ('auto','running') ORDER BY created_at DESC").all(userId) as any[];
   }
 
   // --- HITL (Human-in-the-Loop) ---
@@ -270,13 +273,24 @@ export class Store {
     this.db.prepare("UPDATE tasks SET result = ? WHERE id = ?").run(result, taskId);
   }
 
-  getTaskChain(parentId: number): { id: number; description: string; status: string; result: string | null; created_at: number }[] {
-    return this.db.prepare("SELECT id, description, status, result, created_at FROM tasks WHERE parent_id = ? ORDER BY created_at ASC").all(parentId) as any[];
-  }
-
   // --- Parallel ---
   getNextAutoTasks(platform: string, limit: number): { id: number; user_id: string; platform: string; chat_id: string; description: string; parent_id: number | null }[] {
     return this.db.prepare("SELECT id, user_id, platform, chat_id, description, parent_id FROM tasks WHERE status = 'auto' AND platform = ? AND (scheduled_at IS NULL OR scheduled_at <= ?) ORDER BY created_at ASC LIMIT ?").all(platform, Date.now(), limit) as any[];
+  }
+
+  /** Reset tasks stuck in 'running' state for longer than maxMs back to 'auto' */
+  resetStuckTasks(maxMs: number): number {
+    const cutoff = Date.now() - maxMs;
+    // Find tasks that have been running too long (using created_at as proxy since we don't track started_at)
+    const stuck = this.db.prepare("SELECT id, description FROM tasks WHERE status = 'running' AND created_at < ?").all(cutoff) as { id: number; description: string }[];
+    for (const t of stuck) {
+      const desc = t.description.startsWith("[recovered]") ? t.description : `[recovered] Previous attempt timed out/stuck. Check current state before making changes. Original task: ${t.description}`;
+      this.db.prepare("UPDATE tasks SET status = 'auto', description = ? WHERE id = ?").run(desc, t.id);
+    }
+    if (stuck.length > 0) {
+      log.info("reset stuck running tasks", { count: stuck.length });
+    }
+    return stuck.length;
   }
 
   // --- Observability ---

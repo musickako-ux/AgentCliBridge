@@ -7,9 +7,21 @@ endpoints: []
 #  - name: "codex"
 #    provider: "codex"
 #    model: "o3-mini"
+#  - name: "gemini"
+#    provider: "gemini"
+#    model: "gemini-2.5-pro"
 
 locale: en  # "zh" for Chinese
 log_level: info  # debug | info | warn | error
+
+# Structured log configuration (overrides log_level when log.level is set)
+log:
+  level: info           # debug | info | warn | error
+  file:
+    enabled: false
+    dir: "./logs"        # Log file directory
+    max_size_mb: 10      # Max size per file before rotation
+    max_files: 5         # Number of rotated files to keep
 
 agent:
   allowed_tools:

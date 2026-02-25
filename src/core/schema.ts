@@ -33,6 +33,7 @@ const AgentConfigSchema = z.object({
   cwd: z.string().default(""),
   timeout_seconds: z.number().int().nonnegative().default(0),
   max_parallel: z.number().int().positive().default(1),
+  max_queue_depth: z.number().int().positive().default(50),
   memory: MemoryConfigSchema.default(() => ({}) as any),
   skill: SkillConfigSchema.default(() => ({}) as any),
   session: SessionConfigSchema.default(() => ({}) as any),
@@ -80,6 +81,18 @@ const CronEntrySchema = z.object({
   description: z.string(),
 });
 
+const LogFileConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  dir: z.string().default("./logs"),
+  max_size_mb: z.number().positive().default(10),
+  max_files: z.number().int().positive().default(5),
+});
+
+const LogConfigSchema = z.object({
+  level: z.string().default("info"),
+  file: LogFileConfigSchema.default(() => ({}) as any),
+});
+
 const PlatformsSchema = z.object({
   telegram: TelegramConfigSchema.default(() => ({}) as any),
   discord: DiscordConfigSchema.default(() => ({}) as any),
@@ -88,6 +101,7 @@ const PlatformsSchema = z.object({
 export const ConfigSchema = z.object({
   endpoints: z.array(EndpointSchema).default([]),
   log_level: z.string().default("info"),
+  log: LogConfigSchema.default(() => ({}) as any),
   locale: z.string().default("en"),
   agent: AgentConfigSchema.default(() => ({}) as any),
   workspace: WorkspaceConfigSchema.default(() => ({}) as any),
@@ -110,4 +124,6 @@ export type TelegramConfig = z.infer<typeof TelegramConfigSchema>;
 export type DiscordConfig = z.infer<typeof DiscordConfigSchema>;
 export type RedisConfig = z.infer<typeof RedisConfigSchema>;
 export type WebhookConfig = z.infer<typeof WebhookConfigSchema>;
+export type LogConfig = z.infer<typeof LogConfigSchema>;
+export type LogFileConfig = z.infer<typeof LogFileConfigSchema>;
 export type CronEntry = z.infer<typeof CronEntrySchema>;

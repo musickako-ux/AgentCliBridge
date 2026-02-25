@@ -1,7 +1,24 @@
 import { setDefaultAutoSelectFamily } from "net";
 setDefaultAutoSelectFamily(false);
-import { watch } from "fs";
+import { watch, existsSync } from "fs";
 import { join, dirname, resolve } from "path";
+
+// Windows: auto-detect git-bash for Claude CLI
+if (process.platform === "win32" && !process.env.CLAUDE_CODE_GIT_BASH_PATH) {
+  try {
+    const { execSync } = await import("child_process");
+    const gitPath = execSync("where git.exe", { encoding: "utf-8" }).trim().split("\n")[0].trim();
+    if (gitPath) {
+      // Walk up from git.exe to find Git root (contains bin/bash.exe)
+      let dir = dirname(gitPath);
+      for (let i = 0; i < 4; i++) {
+        const candidate = join(dir, "bin", "bash.exe");
+        if (existsSync(candidate)) { process.env.CLAUDE_CODE_GIT_BASH_PATH = candidate; break; }
+        dir = dirname(dir);
+      }
+    }
+  } catch {}
+}
 import { loadConfig, reloadConfig } from "./core/config.js";
 import { Store } from "./core/store.js";
 import { AgentEngine } from "./core/agent.js";
@@ -9,17 +26,22 @@ import { TelegramAdapter } from "./adapters/telegram.js";
 import { DiscordAdapter } from "./adapters/discord.js";
 import { WebhookServer } from "./webhook.js";
 import { Adapter } from "./adapters/base.js";
-import { log, setLogLevel, LogLevel } from "./core/logger.js";
+import { log, setLogLevel, LogLevel, initFileLog, closeFileLog } from "./core/logger.js";
 
 async function main() {
   const _cfgIdx = process.argv.indexOf("--config");
   const _cfgPath = _cfgIdx !== -1 ? process.argv[_cfgIdx + 1] : undefined;
   let config = loadConfig(_cfgPath);
-  if (config.log_level) setLogLevel(config.log_level as LogLevel);
+  const configDir = _cfgPath ? dirname(resolve(_cfgPath)) : process.cwd();
+  const logLevel = (config.log?.level || config.log_level || "info") as LogLevel;
+  setLogLevel(logLevel);
+  if (config.log?.file?.enabled) {
+    const logDir = resolve(configDir, config.log.file.dir || "./logs");
+    initFileLog(logDir, config.log.file);
+  }
 
   // Derive DB path from config file directory (not CWD)
-  const configDir = _cfgPath ? dirname(resolve(_cfgPath)) : process.cwd();
-  const dbPath = join(configDir, "data", "claudebridge.db");
+  const dbPath = join(configDir, "data", "agent-cli-bridge.db");
   const store = new Store(dbPath);
   const engine = new AgentEngine(config, store);
   const adapters: Adapter[] = [];
@@ -53,19 +75,22 @@ async function main() {
   }
 
   // --- Register signal handlers and hot-reload BEFORE starting adapters ---
-  const shutdown = () => {
+  const shutdown = (exitCode?: number) => {
     log.info("shutting down...");
+    closeFileLog();
+    if (exitCode !== undefined) process.exitCode = exitCode;
+    engine.killAll();
     for (const a of adapters) a.stop();
     if (webhookServer) webhookServer.stop();
     store.close();
-    setTimeout(() => process.exit(0), 1000);
+    setTimeout(() => process.exit(process.exitCode ?? 0), 1000);
   };
-  process.on("SIGINT", shutdown);
-  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", () => shutdown(0));
+  process.on("SIGTERM", () => shutdown(0));
 
   process.on("uncaughtException", (err) => {
     log.error("uncaught exception", { error: err.message, stack: err.stack });
-    shutdown();
+    shutdown(1);
   });
 
   process.on("unhandledRejection", (reason) => {
@@ -76,6 +101,7 @@ async function main() {
     try {
       config = reloadConfig();
       engine.reloadConfig(config);
+      setLogLevel((config.log?.level || config.log_level || "info") as LogLevel);
       for (const a of adapters) {
         if ('reloadConfig' in a && typeof a.reloadConfig === 'function') {
           const plat = a.constructor.name === 'TelegramAdapter' ? config.platforms.telegram : config.platforms.discord;
@@ -96,6 +122,7 @@ async function main() {
       try {
         config = reloadConfig();
         engine.reloadConfig(config);
+        setLogLevel((config.log?.level || config.log_level || "info") as LogLevel);
         for (const a of adapters) {
           if ('reloadConfig' in a && typeof a.reloadConfig === 'function') {
             const plat = a.constructor.name === 'TelegramAdapter' ? config.platforms.telegram : config.platforms.discord;

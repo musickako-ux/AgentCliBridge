@@ -1,4 +1,3 @@
-import Redis from "ioredis";
 import { log as rootLog } from "./logger.js";
 
 const log = rootLog.child("lock");
@@ -8,37 +7,39 @@ const log = rootLog.child("lock");
  *  Multiple sub-sessions for the same user can run concurrently. */
 export class SessionLock {
   private memLocks = new Map<string, Promise<void>>();
-  private redis: Redis | null = null;
-  private prefix = "claudebridge:lock:session:";
+  private redis: any = null;
+  private redisReady = false;
+  private prefix = "agent-cli-bridge:lock:session:";
   private ttl = 300; // 5 min max lock
 
   constructor(redisUrl?: string) {
     if (redisUrl) {
-      try {
-        this.redis = new Redis(redisUrl, { maxRetriesPerRequest: 1, lazyConnect: true });
-        this.redis.connect().catch(() => {
-          log.warn("Redis unavailable, falling back to memory");
-          this.redis = null;
-        });
-      } catch {
-        this.redis = null;
-      }
+      this._initRedis(redisUrl);
+    }
+  }
+
+  private async _initRedis(redisUrl: string): Promise<void> {
+    try {
+      const { default: Redis } = await import("ioredis");
+      this.redis = new Redis(redisUrl, { maxRetriesPerRequest: 1, lazyConnect: true });
+      await this.redis.connect();
+      this.redisReady = true;
+      log.info("Redis connected for session locking");
+    } catch {
+      log.warn("Redis unavailable, falling back to memory");
+      this.redis = null;
+      this.redisReady = false;
     }
   }
 
   async acquire(sessionId: string): Promise<() => void> {
-    if (this.redis) return this._acquireRedis(sessionId);
+    if (this.redis && this.redisReady) return this._acquireRedis(sessionId);
     return this._acquireMem(sessionId);
   }
 
   isLocked(sessionId: string): boolean {
-    if (this.redis) return false; // can't sync-check redis, rely on acquire
+    if (this.redis && this.redisReady) return false; // can't sync-check redis, rely on acquire
     return this.memLocks.has(sessionId);
-  }
-
-  /** Return which of the given keys are currently locked (memory backend only) */
-  isAnyLocked(keys: string[]): string[] {
-    return keys.filter(k => this.memLocks.has(k));
   }
 
   private async _acquireMem(sessionId: string): Promise<() => void> {

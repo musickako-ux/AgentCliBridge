@@ -6,7 +6,7 @@ import { ConfigSchema } from "./schema.js";
 export type {
   Config, Endpoint, AgentConfig, MemoryConfig, SkillConfig,
   SessionConfig, WorkspaceConfig, AccessConfig, TelegramConfig,
-  DiscordConfig, RedisConfig, WebhookConfig, CronEntry,
+  DiscordConfig, RedisConfig, WebhookConfig, LogConfig, LogFileConfig, CronEntry,
 } from "./schema.js";
 
 import type { Config } from "./schema.js";

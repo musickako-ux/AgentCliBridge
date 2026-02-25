@@ -1,4 +1,5 @@
-import { spawn } from "child_process";
+import { ChildProcess } from "child_process";
+import spawn from "cross-spawn";
 import { mkdirSync } from "fs";
 import { join } from "path";
 import { Config } from "./config.js";
@@ -33,6 +34,7 @@ export class AgentEngine {
   private sessionMgr: SessionManager;
   private dispatcher: Dispatcher;
   private sessionExpiryTimer?: ReturnType<typeof setInterval>;
+  private activeChildren = new Set<ChildProcess>();
   access: AccessControl;
 
   constructor(
@@ -63,16 +65,17 @@ export class AgentEngine {
     // SessionManager/Router pick up config changes via reference
   }
 
+  /** Kill all active child processes (call on shutdown) */
+  killAll(): void {
+    for (const child of this.activeChildren) {
+      try { child.kill("SIGTERM"); } catch {}
+    }
+    this.activeChildren.clear();
+    if (this.sessionExpiryTimer) clearInterval(this.sessionExpiryTimer);
+  }
+
   getEndpoints(): { name: string; model: string }[] {
     return this.rotator.list();
-  }
-
-  getRotator(): EndpointRotator {
-    return this.rotator;
-  }
-
-  getEndpointCount(): number {
-    return this.rotator.count;
   }
 
   getMaxParallel(): number {
@@ -81,10 +84,6 @@ export class AgentEngine {
 
   getSessionManager(): SessionManager {
     return this.sessionMgr;
-  }
-
-  getDispatcher(): Dispatcher {
-    return this.dispatcher;
   }
 
   getWorkDir(userId: string): string {
@@ -268,7 +267,7 @@ export class AgentEngine {
       const verbose = opts.verbose !== false;
 
       const appendPrompt = this._buildAppendPrompt(opts);
-      const args = provider.buildArgs({
+      const execOpts = {
         prompt: opts.prompt,
         model: opts.ep.model,
         resumeSessionId: provider.supportsSessionResume ? opts.resumeSessionId : undefined,
@@ -278,12 +277,18 @@ export class AgentEngine {
         maxTurns: this.config.agent.max_turns,
         maxBudgetUsd: this.config.agent.max_budget_usd,
         permissionMode: this.config.agent.permission_mode || "acceptEdits",
-      });
-      const env = provider.buildEnv({ CLAUDEBRIDGE_DB: this.store.dbPath });
+      };
+      const args = provider.buildArgs(execOpts);
+      const env = provider.buildEnv({ AGENT_CLI_BRIDGE_DB: this.store.dbPath });
 
       const child = spawn(provider.binary, args, { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
-      child.stdin.end();
+      this.activeChildren.add(child);
+      if (provider.promptViaStdin && provider.getStdinPrompt) {
+        child.stdin!.write(provider.getStdinPrompt(execOpts));
+      }
+      child.stdin!.end();
       log.info("spawned agent", { provider: opts.ep.provider || "claude", pid: child.pid, label, cwd });
+      const endSpawnTimer = log.time("agent.spawn");
 
       const timeoutMs = opts.overrideTimeoutMs !== undefined
         ? opts.overrideTimeoutMs
@@ -295,7 +300,7 @@ export class AgentEngine {
       let cost = 0;
       let buffer = "";
 
-      child.stdout.on("data", (data: Buffer) => {
+      child.stdout!.on("data", (data: Buffer) => {
         const chunk = data.toString();
         if (verbose) log.debug("stdout chunk", { data: chunk.slice(0, 200) });
         buffer += chunk;
@@ -324,7 +329,7 @@ export class AgentEngine {
       });
 
       let stderr = "";
-      child.stderr.on("data", (data: Buffer) => {
+      child.stderr!.on("data", (data: Buffer) => {
         const s = data.toString();
         stderr += s;
         if (verbose) log.debug("stderr", { data: s.slice(0, 200) });
@@ -332,6 +337,8 @@ export class AgentEngine {
 
       child.on("close", (code, signal) => {
         if (timer) clearTimeout(timer);
+        this.activeChildren.delete(child);
+        endSpawnTimer();
         log.info("agent exited", { code, signal, label, textLen: fullText.length });
         if (signal === "SIGTERM") {
           log.warn("agent timed out", { seconds: timeoutMs / 1000 });
@@ -360,12 +367,13 @@ export class AgentEngine {
     onChunk?: StreamCallback,
     overrideTimeoutMs?: number
   ): Promise<AgentResponse> {
+    log.warn("runStream is deprecated, use handleUserMessage() for multi-session mode", { userId });
     const release = await this.lock.acquire(userId);
     try {
       this.store.addHistory(userId, platform, "user", prompt);
       const memories = this.config.agent.memory?.enabled ? this.store.getMemories(userId) : [];
       const memoryPrompt = memories.length ? memories.map(m => `- ${m.content}`).join("\n") : "";
-      const res = await this._executeWithRetry(userId, prompt, platform, chatId, onChunk, memoryPrompt, overrideTimeoutMs);
+      const res = await this._executeLegacy(userId, prompt, platform, chatId, onChunk, memoryPrompt, overrideTimeoutMs);
       this.store.addHistory(userId, platform, "assistant", res.text);
       this.store.recordUsage(userId, platform, res.cost || 0);
       if (this.config.agent.memory?.auto_summary) this._autoSummarize(userId, prompt, res.text);
@@ -395,7 +403,7 @@ export class AgentEngine {
     return res;
   }
 
-  private async _executeWithRetry(
+  private async _executeLegacy(
     userId: string,
     prompt: string,
     platform: string,
@@ -456,25 +464,32 @@ export class AgentEngine {
     const ep = this.rotator.count
       ? this.rotator.next()
       : { name: "default", provider: "claude", model: "" };
+    const provider = getProvider(ep.provider || "claude");
     const summaryPrompt = `Summarize this conversation exchange in 1-2 sentences for a dispatcher that routes messages. Focus on the topic/task being discussed.\n\nUser: ${prompt.slice(0, 300)}\nAssistant: ${response.slice(0, 500)}`;
-    const args = ["-p", summaryPrompt, "--output-format", "stream-json", "--max-turns", "1", "--max-budget-usd", "0.02"];
-    if (ep.model) args.push("--model", ep.model);
-    const env: Record<string, string> = { ...process.env as Record<string, string> };
-    const child = spawn("claude", args, { env, stdio: ["pipe", "pipe", "pipe"] });
-    child.stdin.end();
+    const execOpts = {
+      prompt: summaryPrompt,
+      model: ep.model,
+      maxTurns: 1,
+      maxBudgetUsd: 0.02,
+    };
+    const args = provider.buildArgs(execOpts);
+    const env = provider.buildEnv({});
+    const child = spawn(provider.binary, args, { env, stdio: ["pipe", "pipe", "pipe"] });
+    if (provider.promptViaStdin && provider.getStdinPrompt) {
+      child.stdin!.write(provider.getStdinPrompt(execOpts));
+    }
+    child.stdin!.end();
     const killTimer = setTimeout(() => { try { child.kill("SIGTERM"); } catch {} }, 30000);
     let result = "";
     let buffer = "";
-    child.stdout.on("data", (data: Buffer) => {
+    child.stdout!.on("data", (data: Buffer) => {
       buffer += data.toString();
       const lines = buffer.split("\n");
       buffer = lines.pop() || "";
       for (const line of lines) {
         if (!line.trim()) continue;
-        try {
-          const msg = JSON.parse(line);
-          if (msg.type === "result" && msg.result) result = msg.result;
-        } catch {}
+        const event = provider.parseLine(line);
+        if (event.type === "result" && event.text) result = event.text;
       }
     });
     child.on("close", () => {
@@ -491,34 +506,41 @@ export class AgentEngine {
     const ep = this.rotator.count
       ? this.rotator.next()
       : { name: "default", provider: "claude", model: "" };
-    const env: Record<string, string> = { ...process.env as Record<string, string> };
+    const provider = getProvider(ep.provider || "claude");
     const summaryPrompt = `Extract 1-3 key facts worth remembering about the user from this exchange. Output only bullet points, no preamble. If nothing worth remembering, output "NONE".\n\nUser: ${prompt.slice(0, 500)}\nAssistant: ${response.slice(0, 1000)}`;
-    const args = ["-p", summaryPrompt, "--verbose", "--output-format", "stream-json", "--max-turns", "1", "--max-budget-usd", "0.05"];
-    if (ep.model) args.push("--model", ep.model);
-    const child = spawn("claude", args, { env, stdio: ["pipe", "pipe", "pipe"] });
-    child.stdin.end();
+    const execOpts = {
+      prompt: summaryPrompt,
+      model: ep.model,
+      maxTurns: 1,
+      maxBudgetUsd: 0.05,
+    };
+    const args = provider.buildArgs(execOpts);
+    const env = provider.buildEnv({});
+    const child = spawn(provider.binary, args, { env, stdio: ["pipe", "pipe", "pipe"] });
+    if (provider.promptViaStdin && provider.getStdinPrompt) {
+      child.stdin!.write(provider.getStdinPrompt(execOpts));
+    }
+    child.stdin!.end();
     const killTimer = setTimeout(() => { try { child.kill("SIGTERM"); } catch {} }, 60000);
     log.info("auto-summary spawned", { pid: child.pid, userId });
     let result = "";
     let cost = 0;
     let buffer = "";
     let stderr = "";
-    child.stdout.on("data", (data: Buffer) => {
+    child.stdout!.on("data", (data: Buffer) => {
       buffer += data.toString();
       const lines = buffer.split("\n");
       buffer = lines.pop() || "";
       for (const line of lines) {
         if (!line.trim()) continue;
-        try {
-          const msg = JSON.parse(line);
-          if (msg.type === "result") {
-            if (msg.result) result = msg.result;
-            if (msg.total_cost_usd) cost = msg.total_cost_usd;
-          }
-        } catch {}
+        const event = provider.parseLine(line);
+        if (event.type === "result") {
+          if (event.text) result = event.text;
+          if (event.cost) cost = event.cost;
+        }
       }
     });
-    child.stderr.on("data", (data: Buffer) => { stderr += data.toString(); });
+    child.stderr!.on("data", (data: Buffer) => { stderr += data.toString(); });
     child.on("close", (code) => {
       clearTimeout(killTimer);
       if (code !== 0) {

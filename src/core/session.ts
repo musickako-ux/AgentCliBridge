@@ -125,11 +125,6 @@ export class SessionManager {
     return session.status === "active" || session.status === "idle";
   }
 
-  /** Get all sub-sessions for a user (all statuses) */
-  getAll(userId: string): SubSession[] {
-    return this.store.getAllSubSessions(userId).map(toSubSession);
-  }
-
   /** Update the summary of a sub-session */
   updateSummary(sessionId: string, summary: string): void {
     this.store.updateSubSessionSummary(sessionId, summary);

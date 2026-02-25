@@ -6,9 +6,9 @@ import { homedir } from "os";
 import { fileURLToPath } from "url";
 import { dirname } from "path";
 
-const DIR = join(homedir(), ".claudebridge");
-const PID_FILE = join(DIR, "claudebridge.pid");
-const LOG_FILE = join(DIR, "claudebridge.log");
+const DIR = join(homedir(), ".agent-cli-bridge");
+const PID_FILE = join(DIR, "agent-cli-bridge.pid");
+const LOG_FILE = join(DIR, "agent-cli-bridge.log");
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const ENTRY = join(__dirname, "index.js");
@@ -29,7 +29,7 @@ function removePid() { try { unlinkSync(PID_FILE); } catch {} }
 
 const args = process.argv.slice(2);
 if (args.includes("--help") || args.includes("-h")) {
-  console.log("Usage: claudebridge <start|stop|status|reload|init> [--config path] [--foreground|-f]");
+  console.log("Usage: agent-cli-bridge <start|stop|status|reload|init> [--config path] [--foreground|-f]");
   process.exit(0);
 }
 const cmd = args.find(a => !a.startsWith("-")) || "start";
@@ -93,6 +93,6 @@ switch (cmd) {
     break;
   }
   default:
-    console.log("Usage: claudebridge <start|stop|status|reload|init> [--config path] [--foreground|-f]");
+    console.log("Usage: agent-cli-bridge <start|stop|status|reload|init> [--config path] [--foreground|-f]");
     process.exit(1);
 }

@@ -8,10 +8,10 @@
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in ClaudeBridge, please report it responsibly:
+If you discover a security vulnerability in AgentCliBridge, please report it responsibly:
 
 1. **Do NOT open a public issue.**
-2. Email the maintainer directly or use [GitHub Security Advisories](https://github.com/Emqo/ClaudeBridge/security/advisories/new) to report privately.
+2. Email the maintainer directly or use [GitHub Security Advisories](https://github.com/Emqo/AgentCliBridge/security/advisories/new) to report privately.
 3. Include:
    - Description of the vulnerability
    - Steps to reproduce

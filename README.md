@@ -1,4 +1,4 @@
-# ClaudeBridge
+# AgentCliBridge
 
 <p align="center">
   <a href="#english">English</a> | <a href="#中文">中文</a>
@@ -8,7 +8,7 @@
 
 <a name="english"></a>
 
-Bridge the `claude` CLI to chat platforms (Telegram, Discord). Spawns `claude` as a subprocess with `--output-format stream-json` — no SDK dependency, just raw CLI power.
+Bridge CLI-based AI agents (`claude`, `codex`, `gemini`) to chat platforms (Telegram, Discord). Spawns the CLI as a subprocess with JSON streaming — no SDK dependency, just raw CLI power.
 
 ## Features
 
@@ -24,7 +24,7 @@ Bridge the `claude` CLI to chat platforms (Telegram, Discord). Spawns `claude` a
 - **i18n**: English + Chinese
 
 ### Skill System (v0.2.0+)
-Instead of hardcoded commands, ClaudeBridge injects a **skill document** into Claude's system prompt. Claude naturally understands it can manage memories, tasks, reminders, and auto-tasks by calling `claudebridge-ctl` through the Bash tool. Just talk naturally:
+Instead of hardcoded commands, AgentCliBridge injects a **skill document** into Claude's system prompt. Claude naturally understands it can manage memories, tasks, reminders, and auto-tasks by calling `agent-cli-bridge-ctl` through the Bash tool. Just talk naturally:
 
 - "remember I like TypeScript" → Claude calls `ctl memory add`
 - "remind me in 5 minutes" → Claude calls `ctl reminder add`
@@ -51,21 +51,21 @@ Instead of hardcoded commands, ClaudeBridge injects a **skill document** into Cl
 ### Global Install (npm)
 
 ```bash
-npm i -g @emqo/claudebridge
-claudebridge init              # generate config.yaml from template
+npm i -g @emqo/agent-cli-bridge
+agent-cli-bridge init              # generate config.yaml from template
 # edit config.yaml — set endpoints, tokens, whitelist
-claudebridge start -f          # foreground
-claudebridge start             # background (daemon)
-claudebridge status            # check if running
-claudebridge reload            # hot reload config
-claudebridge stop              # stop daemon
+agent-cli-bridge start -f          # foreground
+agent-cli-bridge start             # background (daemon)
+agent-cli-bridge status            # check if running
+agent-cli-bridge reload            # hot reload config
+agent-cli-bridge stop              # stop daemon
 ```
 
 ### From Source
 
 ```bash
-git clone https://github.com/Emqo/ClaudeBridge.git
-cd ClaudeBridge
+git clone https://github.com/Emqo/AgentCliBridge.git
+cd AgentCliBridge
 npm install
 cp config.yaml.example config.yaml
 # edit config.yaml
@@ -241,10 +241,10 @@ agent:
 src/
   cli.ts                  CLI: start/stop/status/reload/init with PID management
   index.ts                Entry point, config loading, hot reload, webhook startup
-  ctl.ts                  claudebridge-ctl: memory/task/reminder/auto ops via SQLite
+  ctl.ts                  agent-cli-bridge-ctl: memory/task/reminder/auto ops via SQLite
   webhook.ts              HTTP server + GitHub webhooks + cron scheduler
   core/
-    agent.ts              Claude CLI subprocess spawner + session summary sync
+    agent.ts              CLI subprocess spawner via provider system + session summary sync
     config.ts             YAML config with env fallback
     keys.ts               Endpoint round-robin with cooldown
     lock.ts               Per-user/per-session concurrency mutex (Redis or in-memory)
@@ -280,7 +280,10 @@ User message → Adapter → Access check
 ## Prerequisites
 
 - Node.js 18+
-- `claude` CLI installed and authenticated ([Claude Code](https://docs.anthropic.com/en/docs/claude-code))
+- At least one supported CLI installed and authenticated:
+  - `claude` CLI ([Claude Code](https://docs.anthropic.com/en/docs/claude-code))
+  - `codex` CLI ([OpenAI Codex](https://github.com/openai/codex))
+  - `gemini` CLI ([Google Gemini](https://github.com/google-gemini/gemini-cli))
 - Telegram bot token (from [@BotFather](https://t.me/BotFather)) and/or Discord bot token
 
 ## License
@@ -291,9 +294,9 @@ MIT
 
 <a name="中文"></a>
 
-# ClaudeBridge
+# AgentCliBridge
 
-将 `claude` CLI 桥接到聊天平台（Telegram、Discord）。通过子进程方式调用 `claude --output-format stream-json`，无需 SDK，直接使用 CLI。
+将 CLI AI 代理（`claude`、`codex`、`gemini`）桥接到聊天平台（Telegram、Discord）。通过子进程方式调用 CLI 的 JSON 流式输出，无需 SDK，直接使用 CLI。
 
 ## 功能特性
 
@@ -309,7 +312,7 @@ MIT
 - **国际化**：英文 + 中文
 
 ### 技能系统 (v0.2.0+)
-无需硬编码命令，ClaudeBridge 将**技能文档**注入 Claude 的系统提示。Claude 自然理解它可以通过 Bash 工具调用 `claudebridge-ctl` 来管理记忆、任务、提醒和自动任务。直接对话即可：
+无需硬编码命令，AgentCliBridge 将**技能文档**注入 Claude 的系统提示。Claude 自然理解它可以通过 Bash 工具调用 `agent-cli-bridge-ctl` 来管理记忆、任务、提醒和自动任务。直接对话即可：
 
 - "记住我喜欢 TypeScript" → Claude 调用 `ctl memory add`
 - "5分钟后提醒我" → Claude 调用 `ctl reminder add`
@@ -336,21 +339,21 @@ MIT
 ### 全局安装（npm）
 
 ```bash
-npm i -g @emqo/claudebridge
-claudebridge init              # 从模板生成 config.yaml
+npm i -g @emqo/agent-cli-bridge
+agent-cli-bridge init              # 从模板生成 config.yaml
 # 编辑 config.yaml，配置端点、Token、白名单
-claudebridge start -f          # 前台启动
-claudebridge start             # 后台启动（守护进程）
-claudebridge status            # 查看运行状态
-claudebridge reload            # 热重载配置
-claudebridge stop              # 停止进程
+agent-cli-bridge start -f          # 前台启动
+agent-cli-bridge start             # 后台启动（守护进程）
+agent-cli-bridge status            # 查看运行状态
+agent-cli-bridge reload            # 热重载配置
+agent-cli-bridge stop              # 停止进程
 ```
 
 ### 从源码
 
 ```bash
-git clone https://github.com/Emqo/ClaudeBridge.git
-cd ClaudeBridge
+git clone https://github.com/Emqo/AgentCliBridge.git
+cd AgentCliBridge
 npm install
 cp config.yaml.example config.yaml
 # 编辑 config.yaml
@@ -423,7 +426,10 @@ GitHub Webhooks 支持 `push`、`pull_request`、`issues` 事件，使用 HMAC-S
 ## 前置要求
 
 - Node.js 18+
-- `claude` CLI 已安装并认证（[Claude Code](https://docs.anthropic.com/en/docs/claude-code)）
+- 至少安装并认证一个支持的 CLI：
+  - `claude` CLI（[Claude Code](https://docs.anthropic.com/en/docs/claude-code)）
+  - `codex` CLI（[OpenAI Codex](https://github.com/openai/codex)）
+  - `gemini` CLI（[Google Gemini](https://github.com/google-gemini/gemini-cli)）
 - Telegram bot token（从 [@BotFather](https://t.me/BotFather) 获取）和/或 Discord bot token
 
 ## 许可证
@@ -434,4 +440,4 @@ MIT
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=Emqo/ClaudeBridge&type=Date)](https://star-history.com/#Emqo/ClaudeBridge&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=Emqo/AgentCliBridge&type=Date)](https://star-history.com/#Emqo/AgentCliBridge&Date)
