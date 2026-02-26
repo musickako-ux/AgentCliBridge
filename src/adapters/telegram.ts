@@ -446,6 +446,8 @@ export class TelegramAdapter extends AdapterBase {
           chat_id: chatId, message_id: msgId, text: mdChunks[0], parse_mode: "MarkdownV2",
         });
       } catch (e: any) {
+        // "message is not modified" means the streaming preview already shows correct MarkdownV2 — skip fallback
+        if (e?.message?.includes("not modified")) return;
         log.warn("MarkdownV2 fallback", { error: e?.message?.slice(0, 200) });
         await this.editMsg(chatId, msgId, fullText);
       }
@@ -471,7 +473,8 @@ export class TelegramAdapter extends AdapterBase {
           parse_mode: "MarkdownV2",
           reply_markup: keyboard,
         });
-      } catch {
+      } catch (e: any) {
+        if (e?.message?.includes("not modified")) return;
         try {
           await this.call("editMessageText", {
             chat_id: chatId,
